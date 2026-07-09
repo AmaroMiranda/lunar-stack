@@ -1,5 +1,5 @@
 name: lunar_stack
-description: "Lucky imaging for the Moon on Android: stack and stabilize Moon videos on-device."
+description: "Astrofotografia da Lua no Android: empilhe os melhores frames e estabilize vídeos da Lua 100% no aparelho."
 repository: https://github.com/AmaroMiranda/lunar-stack
 # The following line prevents the package from being accidentally published to
 # pub.dev using `flutter pub publish`. This is preferred for private packages.

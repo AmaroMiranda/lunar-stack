@@ -1,12 +1,12 @@
 # LunarStack
 
-**Lucky imaging da Lua, inteiramente no seu celular Android.**
+**Astrofotografia da Lua por empilhamento, inteiramente no seu celular Android.**
 
 O LunarStack transforma um vídeo tremido da Lua, gravado na mão, em uma única
-fotografia nítida e sem ruído — a mesma técnica de *lucky imaging* usada por
-ferramentas de desktop como AutoStakkert e RegiStax (analisar todos os frames,
-manter só os mais nítidos, alinhar com precisão sub-pixel e tirar a média),
-rodando 100% no aparelho, sem servidor e sem upload.
+fotografia nítida e sem ruído — a mesma técnica usada por ferramentas de
+desktop como AutoStakkert e RegiStax: analisar todos os frames, manter só os
+mais nítidos, alinhar com precisão sub-pixel e tirar a média. Tudo rodando
+100% no aparelho, sem servidor e sem envio de dados.
 
 **[⬇️ Baixar o APK (Releases)](https://github.com/AmaroMiranda/lunar-stack/releases)** —
 na dúvida, use o `arm64-v8a` (celulares de 2017 em diante). Requer Android 10+.
@@ -17,12 +17,12 @@ na dúvida, use o `arm64-v8a` (celulares de 2017 em diante). Requer Android 10+.
   (variância do Laplaciano no plano de luminância), seleciona os N% melhores e
   os alinha com correlação de fase sub-pixel + refino afim por ECC antes de uma
   média ponderada por nitidez.
-- **Estabilizar** — re-encoda o vídeo com a Lua travada no centro do quadro
+- **Estabilizar** — recodifica o vídeo com a Lua travada no centro do quadro
   (rastreamento por centroide de luminância, deslocamentos inteiros nos planos
   YUV, saída H.264/MP4). Sem áudio e sem filtros que destroem qualidade.
 - **Estabilizar + empilhar** — para vídeos muito tremidos: os frames são salvos
   com a Lua pré-centralizada (deslocamento inteiro, **sem perda por
-  re-encode**), garantindo que o registro fino do empilhador sempre convirja.
+  recodificação**), garantindo que o registro fino do empilhador sempre convirja.
 - **Nitidez multi-escala opcional** — wavelets à trous / starlet (estilo
   RegiStax), só na luminância, calibrada para continuar parecendo fotografia.
 - **Modo cru (Empilhamento cru)** — só alinha e tira a média; nenhum ajuste de
@@ -38,19 +38,19 @@ na dúvida, use o `arm64-v8a` (celulares de 2017 em diante). Requer Android 10+.
 |---|---|---|
 | Decodificação e análise | Kotlin (`MediaExtractor` + `MediaCodec`, modo ByteBuffer com YUV flexível) | cada frame é decodificado uma vez e recebe nota de nitidez no plano Y |
 | Seleção de frames | Dart | os N% melhores por nota, limitados por um máximo configurável |
-| Extração | Kotlin | só os frames selecionados são decodificados de novo e salvos como PNG sem perdas (conversão BT.601 ciente do color range), com o encode de PNG em um pool de threads |
-| Registro e empilhamento | C++ / OpenCV via `dart:ffi` | correlação de fase (sinal resolvido por NCC) + afim por ECC por frame, warp cúbico, acumulação float ponderada por nitidez, crop automático |
-| Pós e encode | C++ | nitidez wavelet opcional, saída PNG/JPEG/TIFF 16-bit |
-| Estabilização | Kotlin | decodifica → centroide → shift inteiro YUV → encode H.264 → mux MP4, com as capacidades do encoder consultadas por aparelho |
+| Extração | Kotlin | só os frames selecionados são decodificados de novo e salvos como PNG sem perdas (conversão BT.601 ciente da faixa de cor), com a codificação dos PNGs em um grupo de threads |
+| Registro e empilhamento | C++ / OpenCV via `dart:ffi` | correlação de fase (sinal resolvido por NCC) + afim por ECC por frame, interpolação cúbica, acumulação float ponderada por nitidez, corte automático |
+| Pós-processamento | C++ | nitidez wavelet opcional, saída PNG/JPEG/TIFF 16-bit |
+| Estabilização | Kotlin | decodifica → centroide → deslocamento inteiro dos planos YUV → codificação H.264 → empacotamento MP4, com as capacidades do codificador consultadas por aparelho |
 
 Decisões de projeto que valem conhecer antes de contribuir (todas medidas em
-footage real — os comentários em `native/engine/src/engine.cpp` documentam os
+vídeos reais — os comentários em `native/engine/src/engine.cpp` documentam os
 números):
 
 - A **seleção de frames** é a alavanca dominante de nitidez, não um alinhamento
   mais sofisticado.
 - O *double-stack reference* do AutoStakkert e o alinhamento multi-ponto foram
-  ambos implementados, medidos e **revertidos** — em footage estável de celular
+  ambos implementados, medidos e **revertidos** — em vídeos estáveis de celular
   eles comprovadamente suavizam o resultado.
 - O MediaCodec é usado exclusivamente em modo ByteBuffer +
   `COLOR_FormatYUV420Flexible`: decodificar para um `ImageReader` crasha em
@@ -60,7 +60,7 @@ números):
 
 Requisitos:
 
-- Flutter (canal stable) com toolchain Android
+- Flutter (canal estável) com as ferramentas de Android
 - Android SDK + NDK (o projeto usa a versão de NDK fixada pelo Flutter)
 - [OpenCV Android SDK](https://opencv.org/releases/) (4.x)
 
@@ -97,7 +97,7 @@ lib/                  App Flutter (Riverpod + go_router + freezed)
   features/           uma pasta por tela/fluxo
 android/app/src/main/kotlin/
   SequentialFrameExtractor.kt   decodificação/análise/extração via MediaCodec
-  VideoStabilizer.kt            estabilizador por centroide (decode→shift→encode)
+  VideoStabilizer.kt            estabilizador por centroide (decodifica→desloca→recodifica)
 native/
   engine/             engine C++ OpenCV (API C plana, consumida via FFI)
   tools/test_stack.cpp          CLI via adb para experimentos A/B controlados
