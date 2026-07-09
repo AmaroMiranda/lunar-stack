@@ -1,0 +1,19 @@
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- The INTERNET permission is required for development. Specifically,
+         the Flutter tool needs it to communicate with the running application
+         to allow setting breakpoints, to provide hot reload, etc.
+    -->
+    <uses-permission android:name="android.permission.INTERNET"/>
+
+    <!-- Debug-only: lets `adb shell am broadcast` drive frame extraction for
+         local algorithm testing, without the file picker / Flutter UI. -->
+    <application>
+        <receiver
+            android:name=".DebugExtractReceiver"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="com.astrostack.lunar_stack.DEBUG_EXTRACT" />
+            </intent-filter>
+        </receiver>
+    </application>
+</manifest>
