@@ -142,15 +142,31 @@ bool estimate_shift(const Mat& reference_gray, const Mat& target_gray, Point2d* 
 // target(warp(x)), seeded here with the coarse translation and identity
 // rotation/scale. Returns false if ECC fails to converge (caller falls back
 // to the coarse translation-only estimate).
+// Minimum enhanced correlation coefficient (findTransformECC's own convergence
+// score, range ~[-1,1] for real images) to trust an affine refinement. Below
+// this, ECC ran to completion without throwing but converged to a poor local
+// optimum — silently accepting it was the P0 bug: no exception, no signal.
+// This threshold is a conservative first cut (not calibrated against a video
+// corpus — the project doesn't have one committed yet); it only widens the
+// set of frames that fall back to the coarse phase-correlation translation,
+// which was already the exception-path behavior, so it cannot make alignment
+// worse than before, only more consistently honest about when ECC actually
+// helped.
+constexpr double kMinEccScore = 0.30;
+
 bool refine_affine(const Mat& reference_gray, const Mat& target_gray, Point2d coarse_shift,
                     Mat* out_warp) {
   Mat warp = (Mat_<float>(2, 3) << 1, 0, static_cast<float>(coarse_shift.x), 0, 1,
               static_cast<float>(coarse_shift.y));
   TermCriteria criteria(TermCriteria::COUNT + TermCriteria::EPS, 150, 1e-6);
+  double ecc = 0.0;
   try {
-    findTransformECC(reference_gray, target_gray, warp, MOTION_AFFINE, criteria);
+    ecc = findTransformECC(reference_gray, target_gray, warp, MOTION_AFFINE, criteria);
   } catch (const cv::Exception&) {
     return false;  // did not converge: caller keeps the coarse translation
+  }
+  if (ecc < kMinEccScore) {
+    return false;  // converged, but to a poor fit: don't trust the refinement
   }
   *out_warp = warp;
   return true;
@@ -209,39 +225,45 @@ void wavelet_sharpen_bgr(Mat& img_f /* CV_32FC3, 0..255 */, const std::vector<fl
   // Luminance (Rec.601). Moon is near-gray but this keeps color neutral.
   Mat lum = 0.114f * bgr[0] + 0.587f * bgr[1] + 0.299f * bgr[2];
 
+  // Single streaming pass instead of decomposing into a `details[scales]`
+  // vector and reconstructing in a second loop: at 4K, 5 float32 full-res
+  // layers is ~166 MB held simultaneously for no reason other than the two
+  // loops being written separately. The two loops fold into one via the
+  // telescoping identity of the à trous decomposition:
+  //   c_prev(final) = lum - sum_j raw_detail[j]
+  //   recon = c_prev(final) + sum_j gains[j] * w[j]
+  //         = lum + sum_j (gains[j] * w[j] - raw_detail[j])
+  // where w[j] is the (possibly denoised) detail layer used for
+  // reconstruction and raw_detail[j] is the undenoised layer that actually
+  // drives the decomposition (c_prev -> c_next). Denoising only touches w[j],
+  // never the recursion itself, so raw_detail must stay separate from w — this
+  // is not a plain "(gains[j]-1)*detail" simplification, which would be wrong
+  // whenever j<=1 (denoised).
   Mat c_prev = lum.clone();
-  Mat recon;  // starts as the coarsest residual, detail added back below
-  std::vector<Mat> details;
-  details.reserve(scales);
+  Mat recon = lum.clone();
   for (int j = 0; j < scales; ++j) {
     Mat k = build_atrous_kernel_1d(j);
     Mat c_next;
     sepFilter2D(c_prev, c_next, CV_32F, k, k, Point(-1, -1), 0, BORDER_REFLECT);
-    details.push_back(c_prev - c_next);  // detail layer j
-    c_prev = c_next;
-  }
-  recon = c_prev.clone();  // residual (coarsest smooth)
+    Mat raw_detail = c_prev - c_next;
 
-  for (int j = 0; j < scales; ++j) {
-    Mat w = details[j];
+    Mat w = raw_detail;
     // Denoise the two finest layers (where sensor grain lives) via soft
     // thresholding, so the gain doesn't amplify noise into the result.
     if (denoise > 0.f && j <= 1) {
       const float t = denoise * (j == 0 ? 1.0f : 0.5f);
-      Mat sign, mag;
-      mag = abs(w);
+      Mat mag = abs(raw_detail);
       threshold(mag, mag, t, 0, THRESH_TOZERO);  // |w|<t -> 0
       // rebuild signed, shrinking by t (soft threshold)
       Mat shrunk = mag - t;
       threshold(shrunk, shrunk, 0, 0, THRESH_TOZERO);
-      Mat wsign;
-      w.copyTo(wsign);
-      // apply sign of w to shrunk magnitude
-      Mat pos = (w >= 0);
+      // apply sign of raw_detail to shrunk magnitude
+      Mat pos = (raw_detail >= 0);
       pos.convertTo(pos, CV_32F, 1.0 / 255.0);
       w = shrunk.mul(2 * pos - 1);
     }
-    recon += gains[j] * w;
+    recon += gains[j] * w - raw_detail;
+    c_prev = c_next;
   }
 
   // Apply as a luminance ratio to preserve color.
@@ -311,8 +333,16 @@ int32_t as_stack(const char** utf8_paths, int32_t count, const AsStackOptions* o
     const size_t n = paths.size();
 
     // -- Pass 1: sharpness on a downscaled proxy, pick the anchor -----------
+    //
+    // Streaming by design: only `sharpness[]` (one double per frame, ~16 KB
+    // even at 2000 frames) survives this loop. Earlier revisions kept every
+    // frame's proxy in a `std::vector<Mat> proxies(n)` for reuse in pass 2 —
+    // at the UI's 2000-frame ceiling and a 4K source (2600px-longest-edge
+    // proxy, ~3.8 MB each), that alone reached ~7.6 GB, well past what an
+    // Android app can hold before the accumulator/ECC/wavelet buffers even
+    // exist. Pass 2 below regenerates each proxy on demand instead of
+    // caching it.
     std::vector<double> sharpness(n, 0.0);
-    std::vector<Mat> proxies(n);
     Size full_size;
 
     for (size_t i = 0; i < n; ++i) {
@@ -337,7 +367,6 @@ int32_t as_stack(const char** utf8_paths, int32_t count, const AsStackOptions* o
         proxy = gray;
       }
       sharpness[i] = laplacian_sharpness(proxy);
-      proxies[i] = proxy;
       set_progress(AS_STAGE_ANALYZING, static_cast<int32_t>(i) + 1,
                    static_cast<int32_t>(n), 0.25f * (i + 1) / n);
     }
@@ -347,6 +376,25 @@ int32_t as_stack(const char** utf8_paths, int32_t count, const AsStackOptions* o
       if (sharpness[i] > sharpness[ref_idx]) ref_idx = i;
     }
     const double proxy_scale = resize_scale_for_max_dim(full_size.width, full_size.height, 2600);
+
+    // The one proxy pass 2 actually needs resident throughout: the anchor's,
+    // regenerated once here (cheap relative to the O(n) alternative above)
+    // and reused as the alignment target for every other frame below.
+    Mat ref_proxy;
+    {
+      Mat ref_img = imread(paths[ref_idx], IMREAD_COLOR);
+      if (ref_img.empty()) {
+        fail_msg(err_buf, err_len, "failed to decode: " + paths[ref_idx]);
+        return AS_ERR_DECODE;
+      }
+      Mat ref_gray = to_gray8(ref_img);
+      ref_img.release();
+      if (proxy_scale < 1.0) {
+        resize(ref_gray, ref_proxy, Size(), proxy_scale, proxy_scale, INTER_AREA);
+      } else {
+        ref_proxy = ref_gray;
+      }
+    }
 
     // NOTE: an AutoStakkert-style "double stack reference" (stage A: average
     // the sharpest 25% into a low-noise reference; stage B: register all
@@ -372,15 +420,34 @@ int32_t as_stack(const char** utf8_paths, int32_t count, const AsStackOptions* o
       set_progress(AS_STAGE_ALIGNING, static_cast<int32_t>(i) + 1,
                    static_cast<int32_t>(n), 0.25f + 0.5f * (i + 1) / n);
 
+      // Full-resolution decode moved ahead of alignment (was after it): the
+      // alignment proxy is now regenerated from this same in-memory frame
+      // instead of a pass-1 cache, so it has to exist first. Frames that end
+      // up rejected below now cost one extra decode versus the old
+      // cache-then-skip order — an acceptable trade for not holding an O(n)
+      // proxy array (see the streaming-memory note above).
+      Mat frame = imread(paths[i], IMREAD_COLOR);
+      if (frame.empty()) continue;
+      if (frame.size() != full_size) resize(frame, frame, full_size, 0, 0, INTER_LINEAR);
+
       Mat warp_full;  // 2x3 CV_32F, aligned(x) = frame(warp_full(x))
       if (i != ref_idx) {
+        Mat gray = to_gray8(frame);
+        Mat proxy;
+        const double scale = resize_scale_for_max_dim(gray.cols, gray.rows, 2600);
+        if (scale < 1.0) {
+          resize(gray, proxy, Size(), scale, scale, INTER_AREA);
+        } else {
+          proxy = gray;
+        }
+
         Point2d shift(0.0, 0.0);
-        if (!estimate_shift(proxies[ref_idx], proxies[i], &shift)) {
+        if (!estimate_shift(ref_proxy, proxy, &shift)) {
           continue;  // could not align this frame: skip it
         }
 
         Mat warp_proxy;
-        const bool ecc_ok = refine_affine(proxies[ref_idx], proxies[i], shift, &warp_proxy);
+        const bool ecc_ok = refine_affine(ref_proxy, proxy, shift, &warp_proxy);
         if (!ecc_ok) {
           // ECC didn't converge: keep the coarse phase-correlation translation.
           warp_proxy = (Mat_<float>(2, 3) << 1, 0, static_cast<float>(shift.x), 0, 1,
@@ -415,9 +482,6 @@ int32_t as_stack(const char** utf8_paths, int32_t count, const AsStackOptions* o
         }
       }
 
-      Mat frame = imread(paths[i], IMREAD_COLOR);
-      if (frame.empty()) continue;
-      if (frame.size() != full_size) resize(frame, frame, full_size, 0, 0, INTER_LINEAR);
       Mat frame_f;
       frame.convertTo(frame_f, CV_32FC3);
       frame.release();

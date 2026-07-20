@@ -138,49 +138,98 @@ object SequentialFrameExtractor {
         val paths = java.util.concurrent.ConcurrentSkipListMap<Int, String>()
         val saved = java.util.concurrent.atomic.AtomicInteger(0)
         val firstError = java.util.concurrent.atomic.AtomicReference<Exception?>(null)
+
+        // Each in-flight job holds a tight YUV copy (~12 MB at 4K) plus, while
+        // running, an IntArray + ARGB_8888 Bitmap for the PNG encode
+        // (~66 MB at 4K). A flat "3 in flight" budget regardless of
+        // resolution could peak past 250-350 MB on a 4K clip; scale the
+        // budget down as frames get larger instead.
+        val megapixels = (info.width.toLong() * info.height.toLong()) / 1_000_000.0
+        val maxInFlight = when {
+            megapixels >= 7.5 -> 1 // ~4K (3840x2160 = 8.3 MP) and above
+            megapixels >= 1.8 -> 2 // ~1080p (2.1 MP) and above
+            else -> 3
+        }
         val cores = Runtime.getRuntime().availableProcessors()
-        val pool = java.util.concurrent.Executors.newFixedThreadPool((cores - 1).coerceIn(2, 4))
-        val inFlight = java.util.concurrent.Semaphore(3)
+        val poolSize = (cores - 1).coerceIn(1, 4).coerceAtMost(maxInFlight)
+        val pool = java.util.concurrent.Executors.newFixedThreadPool(poolSize)
+        val inFlight = java.util.concurrent.Semaphore(maxInFlight)
+        val futures = ArrayList<java.util.concurrent.Future<*>>()
+
+        var cancelledMidway = false
         try {
             decodeSequentially(videoPath) { index, image ->
                 if (firstError.get() != null) return@decodeSequentially false
                 if (index in wanted) {
                     val w = image.width
                     val h = image.height
+                    // Acquired BEFORE allocating the YUV copies below (was
+                    // after): otherwise the decoder could race ahead and
+                    // allocate one more set of buffers than the budget while
+                    // every worker was still busy, silently exceeding the
+                    // limit the semaphore exists to enforce.
+                    inFlight.acquire()
                     val y = ByteArray(w * h)
                     val u = ByteArray(w / 2 * (h / 2))
                     val v = ByteArray(w / 2 * (h / 2))
                     copyPlaneTight(image.planes[0], w, h, y)
                     copyPlaneTight(image.planes[1], w / 2, h / 2, u)
                     copyPlaneTight(image.planes[2], w / 2, h / 2, v)
-                    inFlight.acquire()
-                    pool.execute {
-                        try {
-                            var dx = 0
-                            var dy = 0
-                            if (centerMoon) {
-                                val c = moonCentroidTight(y, w, h)
-                                if (c != null) {
-                                    dx = (w / 2.0 - c.first).toInt().coerceIn(-w / 3, w / 3)
-                                    dy = (h / 2.0 - c.second).toInt().coerceIn(-h / 3, h / 3)
+                    futures.add(
+                        pool.submit {
+                            try {
+                                var dx = 0
+                                var dy = 0
+                                if (centerMoon) {
+                                    val c = moonCentroidTight(y, w, h)
+                                    if (c != null) {
+                                        dx = (w / 2.0 - c.first).toInt().coerceIn(-w / 3, w / 3)
+                                        dy = (h / 2.0 - c.second).toInt().coerceIn(-h / 3, h / 3)
+                                    }
                                 }
+                                val file = File(outDir, "frame_%04d.png".format(index))
+                                savePlanesAsPng(y, u, v, w, h, info.rotation, file, dx, dy, lastRangeLimited)
+                                paths[index] = file.absolutePath
+                                onProgress(saved.incrementAndGet(), wanted.size)
+                            } catch (e: Exception) {
+                                firstError.compareAndSet(null, e)
+                            } finally {
+                                inFlight.release()
                             }
-                            val file = File(outDir, "frame_%04d.png".format(index))
-                            savePlanesAsPng(y, u, v, w, h, info.rotation, file, dx, dy, lastRangeLimited)
-                            paths[index] = file.absolutePath
-                            onProgress(saved.incrementAndGet(), wanted.size)
-                        } catch (e: Exception) {
-                            firstError.compareAndSet(null, e)
-                        } finally {
-                            inFlight.release()
-                        }
-                    }
+                        },
+                    )
                 }
-                index < last  // stop decoding once every wanted frame is saved
+                index < last // stop decoding once every wanted frame is saved
             }
+        } catch (e: InterruptedException) {
+            cancelledMidway = true
+            throw e
         } finally {
             pool.shutdown()
-            pool.awaitTermination(120, java.util.concurrent.TimeUnit.SECONDS)
+            if (cancelledMidway || cancelRequested) {
+                // Cancelled: don't wait for pending encodes, their output
+                // would just be discarded. shutdownNow() interrupts whatever
+                // is still running.
+                pool.shutdownNow()
+            } else {
+                // Wait for every submitted job to actually finish — no more
+                // silent "gave up after 120s and returned whatever PNGs
+                // happened to exist by then". There is no network call on
+                // this path to justify a timeout; a job that truly never
+                // returns would hang here, same as any other unbounded disk
+                // I/O elsewhere in this codebase.
+                for (f in futures) {
+                    try {
+                        f.get()
+                    } catch (e: java.util.concurrent.ExecutionException) {
+                        firstError.compareAndSet(null, e.cause as? Exception ?: e)
+                    } catch (e: InterruptedException) {
+                        Thread.currentThread().interrupt()
+                        firstError.compareAndSet(null, e)
+                        break
+                    }
+                }
+            }
         }
         firstError.get()?.let { throw it }
         android.util.Log.i(
