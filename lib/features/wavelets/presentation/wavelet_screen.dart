@@ -18,6 +18,26 @@ const _kScaleLabels = [
   'Estrutura',
 ];
 
+/// Explicação de cada controle, mostrada no ícone de informação ao lado.
+const _kScaleInfo = [
+  'As menores estruturas: textura da superfície, bordas de crateras pequenas e '
+      'grão. Aumentar realça o detalhe mais miúdo — é o que mais dá "nitidez", '
+      'mas também o que mais acentua ruído se exagerar.',
+  'Detalhe pequeno: crateras pequenas e sulcos finos. Um meio-termo entre o '
+      'realce de textura e o de relevo.',
+  'Detalhe médio: crateras médias e o contraste do relevo. Costuma ser o '
+      'controle mais "seguro" para dar profundidade sem parecer artificial.',
+  'Estruturas grandes: mares, grandes formações e variações amplas de brilho. '
+      'Aumentar dá volume ao conjunto; exagerar deixa a imagem "estourada".',
+  'A iluminação e o contraste geral do disco. Mexe no tom global, não no '
+      'detalhe. Em geral pode deixar em 1.00.',
+];
+
+const _kDenoiseInfo =
+    'Suaviza o grão nas camadas mais finas antes de aplicar o realce, para os '
+    'controles de detalhe não amplificarem ruído. Aumente se a imagem ficar '
+    'granulada ao dar nitidez.';
+
 /// Preset "nitidez leve" — mesmos ganhos que o motor usa no empilhamento.
 const _kLightSharpen = [1.30, 1.40, 1.25, 1.10, 1.0];
 
@@ -222,13 +242,16 @@ class _WaveletScreenState extends ConsumerState<WaveletScreen> {
               child: Stack(
                 fit: StackFit.expand,
                 children: [
-                  ClipRect(
+                  InteractiveViewer(
+                    minScale: 1.0,
+                    maxScale: 6.0,
+                    clipBehavior: Clip.hardEdge,
                     child: Image.file(
                       File(showPath),
                       key: ValueKey(showPath),
                       fit: BoxFit.contain,
                       gaplessPlayback: true,
-                      cacheWidth: 1200,
+                      cacheWidth: 1600,
                     ),
                   ),
                   if (_rendering)
@@ -241,6 +264,32 @@ class _WaveletScreenState extends ConsumerState<WaveletScreen> {
                         child: CircularProgressIndicator(strokeWidth: 2),
                       ),
                     ),
+                  Positioned(
+                    left: 12,
+                    bottom: 12,
+                    child: IgnorePointer(
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                        decoration: BoxDecoration(
+                          color: Colors.black.withValues(alpha: 0.45),
+                          borderRadius: BorderRadius.circular(20),
+                        ),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Icon(Icons.pinch_outlined,
+                                size: 14, color: Colors.white.withValues(alpha: 0.85)),
+                            const SizedBox(width: 6),
+                            Text(
+                              'Pinça para dar zoom',
+                              style: TextStyle(
+                                  color: Colors.white.withValues(alpha: 0.85), fontSize: 11),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ),
                 ],
               ),
             ),
@@ -277,6 +326,7 @@ class _WaveletScreenState extends ConsumerState<WaveletScreen> {
                       for (var i = 0; i < _gains.length; i++)
                         _GainSlider(
                           label: _kScaleLabels[i],
+                          info: _kScaleInfo[i],
                           value: _gains[i],
                           onChanged: _applying
                               ? null
@@ -288,6 +338,7 @@ class _WaveletScreenState extends ConsumerState<WaveletScreen> {
                       const SizedBox(height: 4),
                       _GainSlider(
                         label: 'Redução de ruído',
+                        info: _kDenoiseInfo,
                         value: _denoise,
                         min: 0.0,
                         max: 3.0,
@@ -324,15 +375,33 @@ class _GainSlider extends StatelessWidget {
     required this.label,
     required this.value,
     required this.onChanged,
+    this.info,
     this.min = 0.5,
     this.max = 3.0,
   });
 
   final String label;
+  final String? info;
   final double value;
   final ValueChanged<double>? onChanged;
   final double min;
   final double max;
+
+  void _showInfo(BuildContext context) {
+    showDialog<void>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text(label),
+        content: Text(info!, style: Theme.of(context).textTheme.bodyMedium),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(),
+            child: const Text('Entendi'),
+          ),
+        ],
+      ),
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -340,9 +409,28 @@ class _GainSlider extends StatelessWidget {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Row(
-          mainAxisAlignment: MainAxisAlignment.spaceBetween,
           children: [
-            Text(label, style: Theme.of(context).textTheme.bodyMedium),
+            Flexible(
+              child: Text(
+                label,
+                style: Theme.of(context).textTheme.bodyMedium,
+                overflow: TextOverflow.ellipsis,
+              ),
+            ),
+            if (info != null)
+              InkWell(
+                onTap: () => _showInfo(context),
+                borderRadius: BorderRadius.circular(20),
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                  child: Icon(
+                    Icons.info_outline,
+                    size: 16,
+                    color: Theme.of(context).colorScheme.outline,
+                  ),
+                ),
+              ),
+            const Spacer(),
             Text(value.toStringAsFixed(2), style: Theme.of(context).textTheme.bodySmall),
           ],
         ),
