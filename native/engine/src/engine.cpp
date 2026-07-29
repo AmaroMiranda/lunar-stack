@@ -92,16 +92,18 @@ double laplacian_sharpness(const Mat& gray) {
 // 8-bit gray proxies). Sign resolved empirically via NCC on shifted patches,
 // so no separate runtime calibration pass is needed. Returns false if the
 // correlation is too weak/ambiguous to trust.
-bool estimate_shift(const Mat& reference_gray, const Mat& target_gray, Point2d* out_shift) {
-  Mat ref32, tgt32;
-  reference_gray.convertTo(ref32, CV_32F);
+// `reference_gray32` and `hann` depend only on the reference proxy and its
+// size — both constant across all frames in a stack — so the caller computes
+// them once and passes them in, instead of this rebuilding a float copy of the
+// reference and a full Hanning window on every frame (pure per-frame overhead,
+// output-identical either way).
+bool estimate_shift(const Mat& reference_gray, const Mat& reference_gray32, const Mat& hann,
+                    const Mat& target_gray, Point2d* out_shift) {
+  Mat tgt32;
   target_gray.convertTo(tgt32, CV_32F);
 
-  Mat win;
-  createHanningWindow(win, ref32.size(), CV_32F);
-
   double response = 0.0;
-  const Point2d raw = phaseCorrelate(ref32, tgt32, win, &response);
+  const Point2d raw = phaseCorrelate(reference_gray32, tgt32, hann, &response);
   if (response < 0.03) return false;  // textureless or failed correlation
 
   const Point2f center(reference_gray.cols * 0.5f, reference_gray.rows * 0.5f);
@@ -407,6 +409,12 @@ int32_t as_stack(const char** utf8_paths, int32_t count, const AsStackOptions* o
     // the reference frame is noisy/distorted (high-mag telescope video) —
     // revisit only with that footage. Reverted, same precedent as the
     // multi-point AP experiment above.
+    // Reference-derived inputs for phase correlation: constant for the whole
+    // stack, so build them once here rather than per frame inside the loop.
+    Mat ref_proxy32, hann;
+    ref_proxy.convertTo(ref_proxy32, CV_32F);
+    createHanningWindow(hann, ref_proxy.size(), CV_32F);
+
     const bool weighted = options->stacking_method == AS_STACK_WEIGHTED_AVERAGE;
     const auto full_scale = static_cast<float>(proxy_scale > 0 ? 1.0 / proxy_scale : 1.0);
 
@@ -442,7 +450,7 @@ int32_t as_stack(const char** utf8_paths, int32_t count, const AsStackOptions* o
         }
 
         Point2d shift(0.0, 0.0);
-        if (!estimate_shift(ref_proxy, proxy, &shift)) {
+        if (!estimate_shift(ref_proxy, ref_proxy32, hann, proxy, &shift)) {
           continue;  // could not align this frame: skip it
         }
 
@@ -529,7 +537,11 @@ int32_t as_stack(const char** utf8_paths, int32_t count, const AsStackOptions* o
       if (acc.empty()) {
         acc = aligned * w;
       } else {
-        acc += aligned * w;
+        // acc += aligned * w without materializing a full-resolution
+        // CV_32FC3 temporary for `aligned * w` each frame (at 4K that temp is
+        // ~100 MB of alloc/free churn per frame). scaleAdd fuses the multiply
+        // and add in place — same float result.
+        scaleAdd(aligned, w, acc, acc);
       }
       total_w += w;
       ++frames_stacked;
