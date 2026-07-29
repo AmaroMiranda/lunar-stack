@@ -5,6 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:video_player/video_player.dart';
 
 import '../../../core/domain/video_metadata.dart';
+import '../../../core/native/frame_extractor_channel.dart';
 import '../infrastructure/video_metadata_reader.dart';
 
 enum ImportStatus { idle, picking, ready, error }
@@ -53,11 +54,16 @@ class ImportController extends Notifier<ImportState> {
 
     final FilePickerResult? result;
     try {
-      result = await FilePicker.platform.pickFiles(type: FileType.video);
+      // FileType.any (não .video): o filtro de MIME do sistema esconde formatos
+      // que o extrator lê bem — de MP4 com codec fora do padrão a vídeos de
+      // câmera astro (o usuário reportou MP4 "não aceitos"). Validamos o
+      // conteúdo depois, não pela classificação do seletor.
+      result = await FilePicker.platform.pickFiles(type: FileType.any);
     } catch (_) {
       state = ImportState(
         status: ImportStatus.error,
-        errorMessage: 'Não consegui abrir a galeria de vídeos. Verifique as permissões do app.',
+        errorMessage:
+            'Não consegui abrir o seletor de arquivos. Verifique as permissões do app.',
       );
       return;
     }
@@ -71,42 +77,70 @@ class ImportController extends Notifier<ImportState> {
     final path = file.path!;
 
     await state.previewController?.dispose();
-    final controller = VideoPlayerController.file(File(path));
 
+    // Tenta o preview do ExoPlayer — MAS não rejeita se ele falhar. O ExoPlayer
+    // é bem mais exigente que o extrator nativo (MediaExtractor/
+    // MediaMetadataRetriever) que faz o trabalho de verdade; rejeitar no preview
+    // jogava fora vídeos que empilham normalmente. Se o preview falhar, seguimos
+    // com a metadata do probe nativo e sem prévia em vídeo.
+    VideoPlayerController? controller = VideoPlayerController.file(File(path));
+    var previewOk = false;
     try {
       await controller.initialize();
+      final s = controller.value.size;
+      previewOk = controller.value.duration.inMilliseconds > 0 &&
+          s.width > 0 &&
+          s.height > 0;
     } catch (_) {
+      previewOk = false;
+    }
+
+    if (previewOk) {
+      final metadata = buildMetadataFromController(
+        uri: path,
+        fileName: file.name,
+        fileSizeBytes: file.size,
+        controller: controller,
+      );
       state = ImportState(
-        status: ImportStatus.error,
-        errorMessage: 'Não consegui ler esse vídeo. Tente usar um arquivo MP4 ou um vídeo mais curto.',
+        status: ImportStatus.ready,
+        metadata: metadata,
+        previewController: controller,
       );
       return;
     }
 
-    final metadata = buildMetadataFromController(
+    // Preview falhou → probe nativo (rápido, sem decodificar frames).
+    await controller.dispose();
+    controller = null;
+    final probe = await FrameExtractorChannel().probeVideo(videoPath: path);
+    if (probe == null) {
+      final ext = (file.extension ?? path.split('.').last).toLowerCase();
+      final serHint = ext == 'ser'
+          ? ' O formato SER ainda não é suportado no fluxo de vídeo.'
+          : '';
+      state = ImportState(
+        status: ImportStatus.error,
+        errorMessage:
+            'Não consegui ler esse arquivo como vídeo.$serHint Tente MP4, MOV, AVI ou MKV.',
+      );
+      return;
+    }
+
+    final metadata = buildMetadataFromProbe(
       uri: path,
       fileName: file.name,
       fileSizeBytes: file.size,
-      controller: controller,
+      durationMs: probe.durationMs,
+      width: probe.width,
+      height: probe.height,
+      frameCount: probe.frameCount,
+      fps: probe.fps,
     );
-
-    // Some non-video files (e.g. a PNG picked from the "Recent" list) still
-    // "initialize" in video_player but report a 0x0 / zero-duration track.
-    // Reject them here with a clear message instead of failing later during
-    // frame extraction with a cryptic decoder error.
-    if (metadata.width == 0 || metadata.height == 0 || metadata.durationMs == 0) {
-      await controller.dispose();
-      state = const ImportState(
-        status: ImportStatus.error,
-        errorMessage: 'Esse arquivo não parece ser um vídeo. Selecione um vídeo MP4 da Lua.',
-      );
-      return;
-    }
-
     state = ImportState(
       status: ImportStatus.ready,
       metadata: metadata,
-      previewController: controller,
+      previewController: null,
     );
   }
 

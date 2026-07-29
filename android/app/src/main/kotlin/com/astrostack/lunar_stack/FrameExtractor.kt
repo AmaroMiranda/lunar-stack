@@ -27,6 +27,50 @@ data class ExtractionResult(
  */
 object FrameExtractor {
 
+    /**
+     * Fast metadata probe (no frame decode) via [MediaMetadataRetriever]. Used
+     * to accept a clip whose in-app ExoPlayer preview fails to initialise:
+     * ExoPlayer is pickier than the MediaExtractor/MediaMetadataRetriever path
+     * that actually does the frame work, so rejecting on a failed preview threw
+     * away videos that stack fine (a user reported MP4s "not accepted"). Returns
+     * null only when even the metadata can't be read (truly not a video).
+     */
+    fun probe(videoPath: String): Map<String, Any>? {
+        val retriever = MediaMetadataRetriever()
+        return try {
+            retriever.setDataSource(videoPath)
+            val durationMs = retriever
+                .extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)
+                ?.toLongOrNull() ?: 0L
+            val width = retriever
+                .extractMetadata(MediaMetadataRetriever.METADATA_KEY_VIDEO_WIDTH)
+                ?.toIntOrNull() ?: 0
+            val height = retriever
+                .extractMetadata(MediaMetadataRetriever.METADATA_KEY_VIDEO_HEIGHT)
+                ?.toIntOrNull() ?: 0
+            val frameCount = retriever
+                .extractMetadata(MediaMetadataRetriever.METADATA_KEY_VIDEO_FRAME_COUNT)
+                ?.toIntOrNull() ?: 0
+            if (width <= 0 || height <= 0) return null
+            val fps = if (frameCount > 0 && durationMs > 0) {
+                frameCount * 1000.0 / durationMs
+            } else {
+                0.0
+            }
+            mapOf(
+                "durationMs" to durationMs,
+                "width" to width,
+                "height" to height,
+                "frameCount" to frameCount,
+                "fps" to fps,
+            )
+        } catch (e: Exception) {
+            null
+        } finally {
+            retriever.release()
+        }
+    }
+
     fun extract(
         videoPath: String,
         outputDir: String,

@@ -96,6 +96,26 @@ class MainActivity : FlutterActivity() {
                         }.start()
                     }
 
+                    // Fast metadata probe (no decode). Lets the import flow
+                    // accept a clip whose ExoPlayer preview failed to init.
+                    "probeVideo" -> {
+                        val videoPath = call.argument<String>("videoPath")
+                        if (videoPath == null) {
+                            result.error("INVALID_ARGS", "videoPath is required", null)
+                            return@setMethodCallHandler
+                        }
+                        Thread {
+                            val info = FrameExtractor.probe(videoPath)
+                            mainHandler.post {
+                                if (info == null) {
+                                    result.error("PROBE_FAILED", "not a readable video", null)
+                                } else {
+                                    result.success(info)
+                                }
+                            }
+                        }.start()
+                    }
+
                     "cancelExtraction" -> {
                         SequentialFrameExtractor.cancelRequested = true
                         VideoStabilizer.cancelRequested = true

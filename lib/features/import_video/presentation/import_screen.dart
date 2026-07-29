@@ -33,7 +33,7 @@ class ImportScreen extends ConsumerWidget {
                 onRetry: () => ref.read(importControllerProvider.notifier).pickVideo(),
               ),
             ImportStatus.ready => _ImportReady(
-                controller: importState.previewController!,
+                controller: importState.previewController,
                 metadata: importState.metadata!,
                 onChangeVideo: () => ref.read(importControllerProvider.notifier).pickVideo(),
                 onContinue: () {
@@ -101,7 +101,7 @@ class _ImportReady extends StatelessWidget {
     required this.onContinue,
   });
 
-  final VideoPlayerController controller;
+  final VideoPlayerController? controller;
   final VideoMetadata metadata;
   final VoidCallback onChangeVideo;
   final VoidCallback onContinue;
@@ -125,8 +125,34 @@ class _ImportReady extends StatelessWidget {
         ClipRRect(
           borderRadius: BorderRadius.circular(16),
           child: AspectRatio(
-            aspectRatio: controller.value.aspectRatio == 0 ? 16 / 9 : controller.value.aspectRatio,
-            child: VideoPlayer(controller),
+            aspectRatio: (controller?.value.aspectRatio ?? 0) == 0
+                ? (metadata.height > 0
+                    ? metadata.width / metadata.height
+                    : 16 / 9)
+                : controller!.value.aspectRatio,
+            child: controller != null
+                ? VideoPlayer(controller!)
+                : Container(
+                    color: Colors.black,
+                    alignment: Alignment.center,
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(Icons.movie_rounded,
+                            size: 40,
+                            color: Colors.white.withValues(alpha: 0.6)),
+                        const SizedBox(height: 8),
+                        Text(
+                          'Prévia em vídeo indisponível para este formato.\n'
+                          'O empilhamento funciona normalmente.',
+                          textAlign: TextAlign.center,
+                          style: TextStyle(
+                              color: Colors.white.withValues(alpha: 0.7),
+                              fontSize: 12),
+                        ),
+                      ],
+                    ),
+                  ),
           ),
         ),
         const SizedBox(height: 16),

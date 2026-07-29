@@ -77,6 +77,27 @@ class FrameExtractorChannel {
     });
   }
 
+  /// Fast metadata probe (no frame decode). Returns null when the file can't be
+  /// read as a video at all. Used to accept clips whose ExoPlayer preview fails
+  /// to initialise but whose frames still decode via the native extractor.
+  Future<({int durationMs, int width, int height, int frameCount, double fps})?>
+      probeVideo({required String videoPath}) async {
+    try {
+      final result = await _methodChannel
+          .invokeMapMethod<String, Object?>('probeVideo', {'videoPath': videoPath});
+      if (result == null) return null;
+      return (
+        durationMs: (result['durationMs'] as num).toInt(),
+        width: result['width'] as int,
+        height: result['height'] as int,
+        frameCount: (result['frameCount'] as num?)?.toInt() ?? 0,
+        fps: (result['fps'] as num?)?.toDouble() ?? 0.0,
+      );
+    } on PlatformException {
+      return null;
+    }
+  }
+
   Future<VideoAnalysisResult> analyzeVideo({required String videoPath}) async {
     final result = await _methodChannel.invokeMapMethod<String, Object?>('analyzeVideo', {
       'videoPath': videoPath,
