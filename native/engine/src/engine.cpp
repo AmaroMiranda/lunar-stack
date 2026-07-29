@@ -661,6 +661,71 @@ int32_t as_convert_image(const char* in_path, const char* out_path, int32_t jpeg
   }
 }
 
+int32_t as_wavelet_sharpen(const char* in_path, const float* layer_gains, int32_t n_layers,
+                            float denoise, int32_t max_dim, const char* out_path,
+                            char* err_buf, int32_t err_len) {
+  if (in_path == nullptr || out_path == nullptr || layer_gains == nullptr || n_layers <= 0) {
+    fail_msg(err_buf, err_len, "in_path, out_path and layer_gains are required");
+    return AS_ERR_INVALID_ARGS;
+  }
+  try {
+    // IMREAD_UNCHANGED so a 16-bit TIFF master keeps its depth through the
+    // adjustment; the wavelet math runs in float either way.
+    Mat img = imread(in_path, IMREAD_UNCHANGED);
+    if (img.empty()) {
+      fail_msg(err_buf, err_len, std::string("could not decode ") + in_path);
+      return AS_ERR_DECODE;
+    }
+    if (img.channels() == 4) cvtColor(img, img, COLOR_BGRA2BGR);
+    if (img.channels() == 1) cvtColor(img, img, COLOR_GRAY2BGR);
+    const int src_depth = img.depth();
+
+    // Live preview: shrink first so each slider drag re-renders in a few ms.
+    if (max_dim > 0) {
+      const double s = resize_scale_for_max_dim(img.cols, img.rows, max_dim);
+      if (s < 1.0) resize(img, img, Size(), s, s, INTER_AREA);
+    }
+
+    // wavelet_sharpen_bgr works in a 0..255 float space regardless of source
+    // bit depth.
+    Mat img_f;
+    const double to_f = (src_depth == CV_16U) ? (255.0 / 65535.0) : 1.0;
+    img.convertTo(img_f, CV_32FC3, to_f);
+
+    std::vector<float> gains(layer_gains, layer_gains + n_layers);
+    wavelet_sharpen_bgr(img_f, gains, denoise);
+
+    cv::max(img_f, 0.0, img_f);
+    cv::min(img_f, 255.0, img_f);
+
+    const std::string out_str(out_path);
+    const auto ends_with = [&out_str](const char* suf) {
+      const size_t n = std::strlen(suf);
+      return out_str.size() >= n && out_str.compare(out_str.size() - n, n, suf) == 0;
+    };
+    const bool want_tiff = ends_with(".tif") || ends_with(".tiff");
+    const bool want_jpeg = ends_with(".jpg") || ends_with(".jpeg");
+
+    Mat out;
+    std::vector<int> params;
+    if (want_tiff) {
+      img_f.convertTo(out, CV_16UC3, 257.0);  // 0..255 float -> 0..65535
+      params = {IMWRITE_TIFF_PREDICTOR, IMWRITE_TIFF_PREDICTOR_NONE};
+    } else {
+      img_f.convertTo(out, CV_8UC3);
+      if (want_jpeg) params = {IMWRITE_JPEG_QUALITY, 95};
+    }
+    if (!imwrite(out_path, out, params)) {
+      fail_msg(err_buf, err_len, std::string("failed to write ") + out_path);
+      return AS_ERR_ENCODE;
+    }
+    return AS_OK;
+  } catch (const std::exception& e) {
+    fail_msg(err_buf, err_len, std::string("internal error: ") + e.what());
+    return AS_ERR_INTERNAL;
+  }
+}
+
 void as_poll_progress(AsProgress* out) {
   if (out == nullptr) return;
   std::lock_guard<std::mutex> lock(g_progress_mutex);

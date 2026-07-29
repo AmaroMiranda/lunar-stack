@@ -35,7 +35,15 @@ class _AnalysisScreenState extends ConsumerState<AnalysisScreen> {
   }
 
   Future<void> _run() async {
-    final metadata = ref.read(projectDraftProvider).metadata;
+    final draft = ref.read(projectDraftProvider);
+    // Modo empilhamento de imagens: os arquivos já estão em framePaths, não há
+    // vídeo para extrair — analisa a nitidez direto no motor nativo.
+    if (draft.imageMode) {
+      await _runImageAnalysis(draft.framePaths);
+      return;
+    }
+
+    final metadata = draft.metadata;
     if (metadata == null) return;
 
     final extractor = FrameExtractorChannel();
@@ -157,6 +165,61 @@ class _AnalysisScreenState extends ConsumerState<AnalysisScreen> {
     }
   }
 
+  /// Empilhamento de imagens: pontua a nitidez de cada arquivo escolhido
+  /// (mesma métrica do vídeo) e, por padrão, mantém todas — o usuário já
+  /// curou a seleção. Ele pode baixar o percentual depois para descartar as
+  /// menos nítidas.
+  Future<void> _runImageAnalysis(List<String> paths) async {
+    setState(() {
+      _phase = _Phase.analyzing;
+      _current = 0;
+      _total = paths.length;
+    });
+    try {
+      final scores = await withEngineProgress(
+        () => analyzeFramesIsolate(paths),
+        (progress) {
+          if (mounted) {
+            setState(() {
+              _current = progress.current;
+              _total = progress.total == 0 ? paths.length : progress.total;
+            });
+          }
+        },
+      );
+      final maxRaw = scores.isEmpty ? 1.0 : scores.reduce((a, b) => a > b ? a : b);
+      final denom = maxRaw > 1e-9 ? maxRaw : 1.0;
+      final frames = [
+        for (var i = 0; i < scores.length; i++)
+          FrameQuality(
+            frameIndex: i,
+            timestampMs: 0,
+            qualityScore: (scores[i] / denom).clamp(0.0, 1.0),
+            sharpnessScore: (scores[i] / denom).clamp(0.0, 1.0),
+            contrastScore: (scores[i] / denom).clamp(0.0, 1.0),
+            exposurePenalty: 0.0,
+            stabilizationConfidence: (scores[i] / denom).clamp(0.0, 1.0),
+          ),
+      ];
+      ref.read(projectDraftProvider.notifier).setFrameAnalysis(
+            framePaths: paths,
+            frames: frames,
+            suggestedPercent: 100,
+            reason:
+                'Você escolheu as imagens, então por padrão empilhamos todas. '
+                'Reduza o percentual se quiser descartar as menos nítidas.',
+          );
+      if (mounted) setState(() => _phase = _Phase.done);
+    } on Exception catch (e) {
+      if (mounted) {
+        setState(() {
+          _phase = _Phase.failed;
+          _errorMessage = _friendlyError(e);
+        });
+      }
+    }
+  }
+
   // Turn raw platform/engine exceptions into calm, non-technical guidance
   // (spec section 22.2), instead of surfacing e.g. "PlatformException(...)".
   String _friendlyError(Object e) {
@@ -201,6 +264,7 @@ class _AnalysisScreenState extends ConsumerState<AnalysisScreen> {
                 frames: draft.frameQualities,
                 suggestedPercent: draft.suggestedPercent ?? 25,
                 reason: draft.suggestionReason ?? '',
+                isImages: draft.imageMode,
                 onContinue: () => context.push('/stack-config'),
               ),
           },
@@ -240,12 +304,14 @@ class _AnalysisResult extends StatelessWidget {
     required this.frames,
     required this.suggestedPercent,
     required this.reason,
+    required this.isImages,
     required this.onContinue,
   });
 
   final List<FrameQuality> frames;
   final int suggestedPercent;
   final String reason;
+  final bool isImages;
   final VoidCallback onContinue;
 
   @override
@@ -263,7 +329,9 @@ class _AnalysisResult extends StatelessWidget {
         Text('Análise concluída.', style: Theme.of(context).textTheme.titleLarge),
         const SizedBox(height: 4),
         Text(
-          'O vídeo tem ${frames.length} frames analisados.',
+          isImages
+              ? '${frames.length} imagens analisadas.'
+              : 'O vídeo tem ${frames.length} frames analisados.',
           style: Theme.of(context).textTheme.bodyMedium,
         ),
         const SizedBox(height: 16),

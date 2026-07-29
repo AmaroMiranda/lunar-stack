@@ -237,6 +237,12 @@ class _ResultScreenState extends ConsumerState<ResultScreen> {
             ),
             const SizedBox(height: 8),
             OutlinedButton.icon(
+              onPressed: _exporting ? null : () => context.push('/wavelets'),
+              icon: const Icon(Icons.tune),
+              label: const Text('Ajustar detalhes (wavelets)'),
+            ),
+            const SizedBox(height: 8),
+            OutlinedButton.icon(
               onPressed: () {
                 ref.read(projectDraftProvider.notifier).reset();
                 context.go('/');

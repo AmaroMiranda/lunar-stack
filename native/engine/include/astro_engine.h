@@ -107,6 +107,23 @@ AS_EXPORT int32_t as_convert_image(const char* in_path,
                                     char* err_buf,
                                     int32_t err_len);
 
+// Multi-scale (à trous wavelet) detail enhancement of a single saved image —
+// the interactive "wavelets" adjustment applied to a finished stack before
+// saving. `layer_gains` holds `n_layers` per-scale multipliers, finest first
+// (all 1.0 = identity). `denoise` soft-thresholds the two finest layers so the
+// gain doesn't amplify grain (0 = off). If `max_dim` > 0 the image is
+// downscaled to fit that longest side first — used to render a fast live
+// preview; pass 0 to process at full resolution when saving. Output format
+// (8-bit PNG/JPEG vs 16-bit TIFF) follows out_path's extension.
+AS_EXPORT int32_t as_wavelet_sharpen(const char* in_path,
+                                      const float* layer_gains,
+                                      int32_t n_layers,
+                                      float denoise,
+                                      int32_t max_dim,
+                                      const char* out_path,
+                                      char* err_buf,
+                                      int32_t err_len);
+
 // Pull the latest progress snapshot (thread-safe, non-blocking).
 AS_EXPORT void as_poll_progress(AsProgress* out);
 

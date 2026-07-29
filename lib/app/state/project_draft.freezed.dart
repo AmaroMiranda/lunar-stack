@@ -20,7 +20,12 @@ mixin _$ProjectDraft {
   VideoMetadata? get metadata => throw _privateConstructorUsedError;
   ProjectType? get projectType => throw _privateConstructorUsedError;
   StackConfig get stackConfig =>
-      throw _privateConstructorUsedError; // Caminhos reais dos frames extraídos do vídeo (MediaMetadataRetriever).
+      throw _privateConstructorUsedError; // Modo empilhamento de imagens: o usuário escolheu arquivos de imagem
+  // (não um vídeo). Nesse modo [framePaths] já vem preenchido com os
+  // caminhos escolhidos e não há extração de vídeo.
+  bool get imageMode =>
+      throw _privateConstructorUsedError; // Caminhos reais dos frames extraídos do vídeo (MediaMetadataRetriever)
+  // ou, em [imageMode], as imagens escolhidas pelo usuário.
   List<String> get framePaths => throw _privateConstructorUsedError;
   List<FrameQuality> get frameQualities => throw _privateConstructorUsedError;
   int? get suggestedPercent => throw _privateConstructorUsedError;
@@ -59,6 +64,7 @@ abstract class $ProjectDraftCopyWith<$Res> {
     VideoMetadata? metadata,
     ProjectType? projectType,
     StackConfig stackConfig,
+    bool imageMode,
     List<String> framePaths,
     List<FrameQuality> frameQualities,
     int? suggestedPercent,
@@ -100,6 +106,7 @@ class _$ProjectDraftCopyWithImpl<$Res, $Val extends ProjectDraft>
     Object? metadata = freezed,
     Object? projectType = freezed,
     Object? stackConfig = null,
+    Object? imageMode = null,
     Object? framePaths = null,
     Object? frameQualities = null,
     Object? suggestedPercent = freezed,
@@ -131,6 +138,10 @@ class _$ProjectDraftCopyWithImpl<$Res, $Val extends ProjectDraft>
                 ? _value.stackConfig
                 : stackConfig // ignore: cast_nullable_to_non_nullable
                       as StackConfig,
+            imageMode: null == imageMode
+                ? _value.imageMode
+                : imageMode // ignore: cast_nullable_to_non_nullable
+                      as bool,
             framePaths: null == framePaths
                 ? _value.framePaths
                 : framePaths // ignore: cast_nullable_to_non_nullable
@@ -252,6 +263,7 @@ abstract class _$$ProjectDraftImplCopyWith<$Res>
     VideoMetadata? metadata,
     ProjectType? projectType,
     StackConfig stackConfig,
+    bool imageMode,
     List<String> framePaths,
     List<FrameQuality> frameQualities,
     int? suggestedPercent,
@@ -295,6 +307,7 @@ class __$$ProjectDraftImplCopyWithImpl<$Res>
     Object? metadata = freezed,
     Object? projectType = freezed,
     Object? stackConfig = null,
+    Object? imageMode = null,
     Object? framePaths = null,
     Object? frameQualities = null,
     Object? suggestedPercent = freezed,
@@ -326,6 +339,10 @@ class __$$ProjectDraftImplCopyWithImpl<$Res>
             ? _value.stackConfig
             : stackConfig // ignore: cast_nullable_to_non_nullable
                   as StackConfig,
+        imageMode: null == imageMode
+            ? _value.imageMode
+            : imageMode // ignore: cast_nullable_to_non_nullable
+                  as bool,
         framePaths: null == framePaths
             ? _value._framePaths
             : framePaths // ignore: cast_nullable_to_non_nullable
@@ -402,6 +419,7 @@ class _$ProjectDraftImpl implements _ProjectDraft {
     this.metadata,
     this.projectType,
     this.stackConfig = const StackConfig(),
+    this.imageMode = false,
     final List<String> framePaths = const [],
     final List<FrameQuality> frameQualities = const [],
     this.suggestedPercent,
@@ -428,9 +446,17 @@ class _$ProjectDraftImpl implements _ProjectDraft {
   @override
   @JsonKey()
   final StackConfig stackConfig;
-  // Caminhos reais dos frames extraídos do vídeo (MediaMetadataRetriever).
+  // Modo empilhamento de imagens: o usuário escolheu arquivos de imagem
+  // (não um vídeo). Nesse modo [framePaths] já vem preenchido com os
+  // caminhos escolhidos e não há extração de vídeo.
+  @override
+  @JsonKey()
+  final bool imageMode;
+  // Caminhos reais dos frames extraídos do vídeo (MediaMetadataRetriever)
+  // ou, em [imageMode], as imagens escolhidas pelo usuário.
   final List<String> _framePaths;
-  // Caminhos reais dos frames extraídos do vídeo (MediaMetadataRetriever).
+  // Caminhos reais dos frames extraídos do vídeo (MediaMetadataRetriever)
+  // ou, em [imageMode], as imagens escolhidas pelo usuário.
   @override
   @JsonKey()
   List<String> get framePaths {
@@ -490,7 +516,7 @@ class _$ProjectDraftImpl implements _ProjectDraft {
 
   @override
   String toString() {
-    return 'ProjectDraft(metadata: $metadata, projectType: $projectType, stackConfig: $stackConfig, framePaths: $framePaths, frameQualities: $frameQualities, suggestedPercent: $suggestedPercent, suggestionReason: $suggestionReason, stage: $stage, stageProgress: $stageProgress, overallProgress: $overallProgress, framesProcessed: $framesProcessed, framesTotal: $framesTotal, stackResult: $stackResult, referenceFramePath: $referenceFramePath, stabilizedVideoPath: $stabilizedVideoPath, stabilizedWidth: $stabilizedWidth, stabilizedHeight: $stabilizedHeight, stabilizedFrames: $stabilizedFrames, errorMessage: $errorMessage)';
+    return 'ProjectDraft(metadata: $metadata, projectType: $projectType, stackConfig: $stackConfig, imageMode: $imageMode, framePaths: $framePaths, frameQualities: $frameQualities, suggestedPercent: $suggestedPercent, suggestionReason: $suggestionReason, stage: $stage, stageProgress: $stageProgress, overallProgress: $overallProgress, framesProcessed: $framesProcessed, framesTotal: $framesTotal, stackResult: $stackResult, referenceFramePath: $referenceFramePath, stabilizedVideoPath: $stabilizedVideoPath, stabilizedWidth: $stabilizedWidth, stabilizedHeight: $stabilizedHeight, stabilizedFrames: $stabilizedFrames, errorMessage: $errorMessage)';
   }
 
   @override
@@ -504,6 +530,8 @@ class _$ProjectDraftImpl implements _ProjectDraft {
                 other.projectType == projectType) &&
             (identical(other.stackConfig, stackConfig) ||
                 other.stackConfig == stackConfig) &&
+            (identical(other.imageMode, imageMode) ||
+                other.imageMode == imageMode) &&
             const DeepCollectionEquality().equals(
               other._framePaths,
               _framePaths,
@@ -547,6 +575,7 @@ class _$ProjectDraftImpl implements _ProjectDraft {
     metadata,
     projectType,
     stackConfig,
+    imageMode,
     const DeepCollectionEquality().hash(_framePaths),
     const DeepCollectionEquality().hash(_frameQualities),
     suggestedPercent,
@@ -579,6 +608,7 @@ abstract class _ProjectDraft implements ProjectDraft {
     final VideoMetadata? metadata,
     final ProjectType? projectType,
     final StackConfig stackConfig,
+    final bool imageMode,
     final List<String> framePaths,
     final List<FrameQuality> frameQualities,
     final int? suggestedPercent,
@@ -602,7 +632,12 @@ abstract class _ProjectDraft implements ProjectDraft {
   @override
   ProjectType? get projectType;
   @override
-  StackConfig get stackConfig; // Caminhos reais dos frames extraídos do vídeo (MediaMetadataRetriever).
+  StackConfig get stackConfig; // Modo empilhamento de imagens: o usuário escolheu arquivos de imagem
+  // (não um vídeo). Nesse modo [framePaths] já vem preenchido com os
+  // caminhos escolhidos e não há extração de vídeo.
+  @override
+  bool get imageMode; // Caminhos reais dos frames extraídos do vídeo (MediaMetadataRetriever)
+  // ou, em [imageMode], as imagens escolhidas pelo usuário.
   @override
   List<String> get framePaths;
   @override

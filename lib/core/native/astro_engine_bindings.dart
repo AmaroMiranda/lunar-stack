@@ -139,6 +139,11 @@ typedef _ConvertC = Int32 Function(
     Pointer<Utf8>, Pointer<Utf8>, Int32, Pointer<Utf8>, Int32);
 typedef _ConvertDart = int Function(Pointer<Utf8>, Pointer<Utf8>, int, Pointer<Utf8>, int);
 
+typedef _WaveletC = Int32 Function(Pointer<Utf8>, Pointer<Float>, Int32, Float, Int32,
+    Pointer<Utf8>, Pointer<Utf8>, Int32);
+typedef _WaveletDart = int Function(Pointer<Utf8>, Pointer<Float>, int, double, int,
+    Pointer<Utf8>, Pointer<Utf8>, int);
+
 typedef _PollC = Void Function(Pointer<_AsProgress>);
 typedef _PollDart = void Function(Pointer<_AsProgress>);
 
@@ -159,6 +164,7 @@ class AstroEngine {
         _analyze = lib.lookupFunction<_AnalyzeC, _AnalyzeDart>('as_analyze_frames'),
         _stack = lib.lookupFunction<_StackC, _StackDart>('as_stack'),
         _convert = lib.lookupFunction<_ConvertC, _ConvertDart>('as_convert_image'),
+        _wavelet = lib.lookupFunction<_WaveletC, _WaveletDart>('as_wavelet_sharpen'),
         _poll = lib.lookupFunction<_PollC, _PollDart>('as_poll_progress'),
         _result = lib.lookupFunction<_ResultC, _ResultDart>('as_get_stack_result'),
         _cancelFn = lib.lookupFunction<_CancelC, _CancelDart>('as_cancel');
@@ -176,6 +182,7 @@ class AstroEngine {
   final _AnalyzeDart _analyze;
   final _StackDart _stack;
   final _ConvertDart _convert;
+  final _WaveletDart _wavelet;
   final _PollDart _poll;
   final _ResultDart _result;
   final _CancelDart _cancelFn;
@@ -277,6 +284,40 @@ class AstroEngine {
     });
   }
 
+  /// Blocking — call from a worker isolate. Applies an à trous wavelet detail
+  /// enhancement to [inPath], writing to [outPath] (format from its extension).
+  /// [gains] holds the per-scale multipliers, finest first (all 1.0 = no-op).
+  /// [maxDim] > 0 downscales first for a fast live preview; 0 = full-res.
+  void waveletSharpen({
+    required String inPath,
+    required List<double> gains,
+    required double denoise,
+    required String outPath,
+    int maxDim = 0,
+  }) {
+    using((arena) {
+      final gainPtr = arena<Float>(gains.length);
+      for (var i = 0; i < gains.length; i++) {
+        gainPtr[i] = gains[i];
+      }
+      const errLen = 512;
+      final errBuf = arena.allocate<Utf8>(errLen);
+      final rc = _wavelet(
+        inPath.toNativeUtf8(allocator: arena),
+        gainPtr,
+        gains.length,
+        denoise,
+        maxDim,
+        outPath.toNativeUtf8(allocator: arena),
+        errBuf,
+        errLen,
+      );
+      if (rc != 0) {
+        throw EngineException(rc, errBuf.toDartString());
+      }
+    });
+  }
+
   EngineProgress pollProgress() {
     return using((arena) {
       final p = arena<_AsProgress>();
@@ -324,6 +365,23 @@ Future<void> convertImageIsolate({
 }) {
   return Isolate.run(() => AstroEngine.instance
       .convertImage(inPath: inPath, outPath: outPath, jpegQuality: jpegQuality));
+}
+
+/// See [analyzeFramesIsolate] for why this must stay a top-level function.
+Future<void> waveletSharpenIsolate({
+  required String inPath,
+  required List<double> gains,
+  required double denoise,
+  required String outPath,
+  int maxDim = 0,
+}) {
+  return Isolate.run(() => AstroEngine.instance.waveletSharpen(
+        inPath: inPath,
+        gains: gains,
+        denoise: denoise,
+        outPath: outPath,
+        maxDim: maxDim,
+      ));
 }
 
 /// Polls native progress on the calling isolate at a fixed cadence while

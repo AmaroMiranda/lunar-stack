@@ -17,7 +17,12 @@ class ProjectDraft with _$ProjectDraft {
     VideoMetadata? metadata,
     ProjectType? projectType,
     @Default(StackConfig()) StackConfig stackConfig,
-    // Caminhos reais dos frames extraídos do vídeo (MediaMetadataRetriever).
+    // Modo empilhamento de imagens: o usuário escolheu arquivos de imagem
+    // (não um vídeo). Nesse modo [framePaths] já vem preenchido com os
+    // caminhos escolhidos e não há extração de vídeo.
+    @Default(false) bool imageMode,
+    // Caminhos reais dos frames extraídos do vídeo (MediaMetadataRetriever)
+    // ou, em [imageMode], as imagens escolhidas pelo usuário.
     @Default([]) List<String> framePaths,
     @Default([]) List<FrameQuality> frameQualities,
     int? suggestedPercent,

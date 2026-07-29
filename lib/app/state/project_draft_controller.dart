@@ -38,6 +38,42 @@ class ProjectDraftController extends Notifier<ProjectDraft> {
     state = state.copyWith(projectType: type);
   }
 
+  /// Entra no modo "empilhar imagens": o usuário escolheu arquivos de imagem
+  /// em vez de um vídeo. Preenche [framePaths] direto e monta uma metadata
+  /// sintética (as telas seguintes e o histórico esperam uma). O empilhamento
+  /// é sempre o único fluxo possível aqui.
+  void setImageSources(List<String> paths) {
+    reset();
+    state = state.copyWith(
+      imageMode: true,
+      projectType: ProjectType.stacking,
+      framePaths: paths,
+      metadata: VideoMetadata(
+        uri: paths.isEmpty ? '' : paths.first,
+        fileName: paths.length == 1
+            ? '1 imagem selecionada'
+            : '${paths.length} imagens selecionadas',
+        durationMs: 0,
+        width: 0,
+        height: 0,
+        fps: 0,
+        estimatedFrameCount: paths.length,
+        fileSizeBytes: 0,
+      ),
+    );
+  }
+
+  /// Substitui a imagem final (mestre + prévia) pela versão ajustada na tela
+  /// de wavelets, mantendo o resto do resultado. A tela de Resultado passa a
+  /// exibir/exportar a versão nova.
+  void replaceStackMaster({required String outputPath, required String previewPath}) {
+    final result = state.stackResult;
+    if (result == null) return;
+    state = state.copyWith(
+      stackResult: result.copyWith(outputPath: outputPath, previewPath: previewPath),
+    );
+  }
+
   void updateStackConfig(StackConfig Function(StackConfig) update) {
     state = state.copyWith(stackConfig: update(state.stackConfig));
   }

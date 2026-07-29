@@ -57,9 +57,16 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
             const SizedBox(height: 12),
             _HomeActionCard(
               icon: Icons.auto_awesome,
-              title: 'Empilhar imagem',
-              description: 'Use os melhores frames para gerar uma foto mais limpa.',
+              title: 'Empilhar vídeo',
+              description: 'Use os melhores frames do vídeo para gerar uma foto mais limpa.',
               onTap: () => context.push('/import'),
+            ),
+            const SizedBox(height: 12),
+            _HomeActionCard(
+              icon: Icons.photo_library_outlined,
+              title: 'Empilhar imagens',
+              description: 'Já tem várias fotos da Lua? Alinhe e empilhe direto, sem vídeo.',
+              onTap: () => context.push('/import-images'),
             ),
             const SizedBox(height: 28),
             Row(
