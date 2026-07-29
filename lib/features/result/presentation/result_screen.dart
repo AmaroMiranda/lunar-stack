@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:gal/gal.dart';
 import 'package:go_router/go_router.dart';
+import 'package:path_provider/path_provider.dart';
 import 'package:uuid/uuid.dart';
 
 import '../../../app/state/project_draft_controller.dart';
@@ -27,11 +28,42 @@ class ResultScreen extends ConsumerStatefulWidget {
 class _ResultScreenState extends ConsumerState<ResultScreen> {
   bool _saved = false;
   bool _exporting = false;
+  // Caminho decodificável pelo Flutter para o "antes". O frame de referência
+  // pode ser um RAW/TIFF (empilhamento de imagens) que o Flutter não exibe —
+  // nesse caso geramos uma prévia JPEG.
+  String? _beforeDisplayPath;
+
+  // Formatos que o Image.file do Flutter decodifica direto.
+  static const _flutterDecodable = {'jpg', 'jpeg', 'png', 'webp', 'bmp', 'gif'};
 
   @override
   void initState() {
     super.initState();
-    WidgetsBinding.instance.addPostFrameCallback((_) => _saveToHistory());
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _saveToHistory();
+      _prepareBeforePreview();
+    });
+  }
+
+  Future<void> _prepareBeforePreview() async {
+    final refPath = ref.read(projectDraftProvider).referenceFramePath;
+    if (refPath == null) return;
+    final dot = refPath.lastIndexOf('.');
+    final ext = dot < 0 ? '' : refPath.substring(dot + 1).toLowerCase();
+    if (_flutterDecodable.contains(ext)) {
+      setState(() => _beforeDisplayPath = refPath);
+      return;
+    }
+    // RAW/TIFF: gera uma prévia JPEG (o motor decodifica RAW via LibRaw).
+    try {
+      final tmp = await getTemporaryDirectory();
+      final out =
+          '${tmp.path}/before_${DateTime.now().millisecondsSinceEpoch}.jpg';
+      await convertImageIsolate(inPath: refPath, outPath: out);
+      if (mounted) setState(() => _beforeDisplayPath = out);
+    } catch (_) {
+      // Sem prévia do "antes" — o "depois" continua visível normalmente.
+    }
   }
 
   Future<void> _saveToHistory() async {
@@ -194,9 +226,17 @@ class _ResultScreenState extends ConsumerState<ResultScreen> {
               // here turn the drag into seconds-per-frame jank (ANR on slow
               // GPUs). ~1440px is above the on-screen size, visually lossless.
               before: Image.file(
-                File(draft.referenceFramePath!),
+                // Prévia decodificável quando pronta; enquanto isso, cai no
+                // arquivo de referência (funciona para JPG/PNG; RAW/TIFF só
+                // aparecem quando _beforeDisplayPath fica pronto).
+                File(_beforeDisplayPath ?? draft.referenceFramePath!),
                 fit: BoxFit.cover,
                 cacheWidth: 1440,
+                errorBuilder: (context, error, stack) => Container(
+                  color: Colors.black,
+                  alignment: Alignment.center,
+                  child: const Icon(Icons.hourglass_empty, color: Colors.white54),
+                ),
               ),
               after: Image.file(
                 File(displayPath),

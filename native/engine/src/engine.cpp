@@ -17,6 +17,8 @@
 #include <opencv2/imgproc.hpp>
 #include <opencv2/video/tracking.hpp>
 
+#include <libraw/libraw.h>
+
 #ifdef __ANDROID__
 #include <android/log.h>
 #define AS_LOG(...) \
@@ -27,10 +29,12 @@
 
 #include <algorithm>
 #include <atomic>
+#include <cctype>
 #include <cmath>
 #include <cstdio>
 #include <cstring>
 #include <mutex>
+#include <set>
 #include <string>
 #include <vector>
 
@@ -78,6 +82,83 @@ double resize_scale_for_max_dim(int cols, int rows, int max_dim) {
   const int longest = std::max(cols, rows);
   if (longest <= max_dim) return 1.0;
   return static_cast<double>(max_dim) / static_cast<double>(longest);
+}
+
+std::string lower_ext(const std::string& path) {
+  const size_t dot = path.find_last_of('.');
+  if (dot == std::string::npos) return "";
+  std::string ext = path.substr(dot + 1);
+  for (auto& c : ext) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+  return ext;
+}
+
+// Camera RAW containers LibRaw handles and OpenCV's imgcodecs does not
+// (CR2/CR3/NEF/ARW/DNG…). DNG is included: OpenCV would "read" some DNGs as a
+// plain TIFF (or fail) without demosaicing the Bayer data.
+bool is_raw(const std::string& path) {
+  static const std::set<std::string> kRawExts = {
+      "cr2", "cr3", "crw", "nef", "nrw", "arw", "srf", "sr2", "dng",
+      "raf", "orf", "rw2", "pef", "raw", "3fr", "iiq", "erf", "mos",
+      "mrw", "kdc", "dcr", "x3f", "srw", "rwl"};
+  return kRawExts.count(lower_ext(path)) > 0;
+}
+
+// Decode a camera RAW to a 16-bit BGR Mat via LibRaw. Same decode policy as
+// AstroStitch (the app STACKS, it does not reinterpret): the RAW comes out
+// looking like the camera's own render, matching a TIFF/JPEG of the same shot.
+//   • sRGB gamma — the standard rendering every viewer/converter applies.
+//   • use_camera_wb — the shot's OWN white balance (auto WB would drift
+//     between frames).
+//   • no_auto_bright — auto-exposure is a per-frame EDIT; a different scale on
+//     each frame would break the stack's photometric consistency.
+//   • AHD demosaic, 16-bit, sRGB primaries.
+Mat imread_raw16(const std::string& path) {
+  LibRaw raw;
+  raw.imgdata.params.output_bps = 16;
+  raw.imgdata.params.no_auto_bright = 1;
+  raw.imgdata.params.use_camera_wb = 1;
+  raw.imgdata.params.use_auto_wb = 0;
+  raw.imgdata.params.user_qual = 3;         // AHD
+  raw.imgdata.params.gamm[0] = 1.0 / 2.4;   // sRGB curve
+  raw.imgdata.params.gamm[1] = 12.92;
+  raw.imgdata.params.output_color = 1;      // sRGB primaries
+
+  if (raw.open_file(path.c_str()) != LIBRAW_SUCCESS) return Mat();
+  if (raw.unpack() != LIBRAW_SUCCESS) return Mat();
+  if (raw.dcraw_process() != LIBRAW_SUCCESS) return Mat();
+
+  int err = 0;
+  libraw_processed_image_t* out = raw.dcraw_make_mem_image(&err);
+  if (out == nullptr) return Mat();
+  Mat img;
+  if (out->type == LIBRAW_IMAGE_BITMAP && out->colors == 3 && out->bits == 16) {
+    Mat rgb(out->height, out->width, CV_16UC3, static_cast<void*>(out->data));
+    cvtColor(rgb, img, COLOR_RGB2BGR);  // clones out of LibRaw's buffer
+  }
+  LibRaw::dcraw_clear_mem(out);
+  raw.recycle();
+  return img;
+}
+
+// Drop-in replacement for cv::imread that also decodes camera RAW. For RAW the
+// 16-bit LibRaw output is adapted to the requested flag so the rest of the
+// pipeline (which assumes 8-bit BGR from imread) is unchanged:
+//   IMREAD_COLOR      -> 8-bit BGR   (RAW downscaled 16->8, i.e. the sRGB render)
+//   IMREAD_GRAYSCALE  -> 8-bit gray
+//   IMREAD_UNCHANGED  -> 16-bit BGR  (kept at depth, for master re-encode paths)
+Mat imread_any(const std::string& path, int flags) {
+  if (!is_raw(path)) return imread(path, flags);
+  Mat bgr16 = imread_raw16(path);
+  if (bgr16.empty()) return Mat();
+  if (flags == IMREAD_UNCHANGED) return bgr16;
+  Mat bgr8;
+  bgr16.convertTo(bgr8, CV_8UC3, 1.0 / 257.0);  // 0..65535 -> 0..255
+  if (flags == IMREAD_GRAYSCALE) {
+    Mat gray;
+    cvtColor(bgr8, gray, COLOR_BGR2GRAY);
+    return gray;
+  }
+  return bgr8;
 }
 
 double laplacian_sharpness(const Mat& gray) {
@@ -301,7 +382,7 @@ int32_t as_analyze_frames(const char** utf8_paths, int32_t count, double* out_sc
 
   for (int32_t i = 0; i < count; ++i) {
     if (cancelled()) return AS_ERR_CANCELLED;
-    Mat img = imread(utf8_paths[i], IMREAD_GRAYSCALE);
+    Mat img = imread_any(utf8_paths[i], IMREAD_GRAYSCALE);
     if (img.empty()) {
       fail_msg(err_buf, err_len, std::string("failed to decode: ") + utf8_paths[i]);
       return AS_ERR_DECODE;
@@ -349,7 +430,7 @@ int32_t as_stack(const char** utf8_paths, int32_t count, const AsStackOptions* o
 
     for (size_t i = 0; i < n; ++i) {
       if (cancelled()) return AS_ERR_CANCELLED;
-      Mat img = imread(paths[i], IMREAD_COLOR);
+      Mat img = imread_any(paths[i], IMREAD_COLOR);
       if (img.empty()) {
         fail_msg(err_buf, err_len, "failed to decode: " + paths[i]);
         return AS_ERR_DECODE;
@@ -384,7 +465,7 @@ int32_t as_stack(const char** utf8_paths, int32_t count, const AsStackOptions* o
     // and reused as the alignment target for every other frame below.
     Mat ref_proxy;
     {
-      Mat ref_img = imread(paths[ref_idx], IMREAD_COLOR);
+      Mat ref_img = imread_any(paths[ref_idx], IMREAD_COLOR);
       if (ref_img.empty()) {
         fail_msg(err_buf, err_len, "failed to decode: " + paths[ref_idx]);
         return AS_ERR_DECODE;
@@ -434,7 +515,7 @@ int32_t as_stack(const char** utf8_paths, int32_t count, const AsStackOptions* o
       // up rejected below now cost one extra decode versus the old
       // cache-then-skip order — an acceptable trade for not holding an O(n)
       // proxy array (see the streaming-memory note above).
-      Mat frame = imread(paths[i], IMREAD_COLOR);
+      Mat frame = imread_any(paths[i], IMREAD_COLOR);
       if (frame.empty()) continue;
       if (frame.size() != full_size) resize(frame, frame, full_size, 0, 0, INTER_LINEAR);
 
@@ -635,8 +716,9 @@ int32_t as_convert_image(const char* in_path, const char* out_path, int32_t jpeg
     return AS_ERR_INVALID_ARGS;
   }
   try {
-    // IMREAD_UNCHANGED keeps 16-bit TIFF masters at full depth.
-    Mat img = imread(in_path, IMREAD_UNCHANGED);
+    // IMREAD_UNCHANGED keeps 16-bit TIFF masters at full depth; imread_any also
+    // lets this decode a camera RAW (used to render the "before" preview).
+    Mat img = imread_any(in_path, IMREAD_UNCHANGED);
     if (img.empty()) {
       fail_msg(err_buf, err_len, std::string("could not decode ") + in_path);
       return AS_ERR_DECODE;

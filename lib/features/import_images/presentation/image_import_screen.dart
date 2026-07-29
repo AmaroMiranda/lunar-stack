@@ -6,8 +6,17 @@ import 'package:go_router/go_router.dart';
 import '../../../app/state/project_draft_controller.dart';
 import '../../../core/widgets/astro_card.dart';
 
-/// Extensões de imagem que o motor (OpenCV imread) decodifica bem.
-const _kImageExtensions = ['jpg', 'jpeg', 'png', 'tif', 'tiff', 'bmp', 'webp', 'heic', 'heif'];
+/// Extensões que o motor decodifica: imagens comuns (OpenCV) + RAW de câmera
+/// (via LibRaw — Canon CR2/CR3, Nikon NEF, Sony ARW, DNG etc.).
+const _kStandardImageExtensions = [
+  'jpg', 'jpeg', 'png', 'tif', 'tiff', 'bmp', 'webp', 'heic', 'heif',
+];
+const _kRawExtensions = [
+  'cr2', 'cr3', 'crw', 'nef', 'nrw', 'arw', 'srf', 'sr2', 'dng',
+  'raf', 'orf', 'rw2', 'pef', '3fr', 'iiq', 'erf', 'mos',
+  'mrw', 'kdc', 'dcr', 'x3f', 'srw', 'rwl',
+];
+const _kImageExtensions = [..._kStandardImageExtensions, ..._kRawExtensions];
 
 class ImageImportScreen extends ConsumerStatefulWidget {
   const ImageImportScreen({super.key});
@@ -28,24 +37,12 @@ class _ImageImportScreenState extends ConsumerState<ImageImportScreen> {
 
     FilePickerResult? result;
     try {
-      // Tenta o filtro por extensão (mostra só imagens). Em alguns aparelhos o
-      // seletor custom falha — nesse caso caímos para FileType.image, e como
-      // último recurso FileType.any (validamos as extensões nós mesmos).
-      try {
-        result = await FilePicker.platform.pickFiles(
-          type: FileType.custom,
-          allowedExtensions: _kImageExtensions,
-          allowMultiple: true,
-        );
-      } catch (_) {
-        try {
-          result = await FilePicker.platform
-              .pickFiles(type: FileType.image, allowMultiple: true);
-        } catch (_) {
-          result = await FilePicker.platform
-              .pickFiles(type: FileType.any, allowMultiple: true);
-        }
-      }
+      // FileType.any (não .image/.custom): o filtro de MIME do sistema esconde
+      // os RAW de câmera (CR2/CR3/NEF/ARW/DNG…) — eles não têm MIME de imagem
+      // conhecido no Android e simplesmente não aparecem no seletor filtrado.
+      // Mostramos tudo e validamos por extensão logo abaixo.
+      result = await FilePicker.platform
+          .pickFiles(type: FileType.any, allowMultiple: true);
     } catch (_) {
       setState(() {
         _picking = false;
@@ -71,7 +68,8 @@ class _ImageImportScreenState extends ConsumerState<ImageImportScreen> {
         _picking = false;
         _error = paths.length == 1
             ? 'Selecione pelo menos 2 imagens para empilhar.'
-            : 'Nenhuma imagem válida selecionada. Use JPG, PNG, TIFF, BMP ou WEBP.';
+            : 'Nenhuma imagem válida selecionada. Use JPG, PNG, TIFF, BMP, WEBP '
+                'ou RAW (CR2, CR3, NEF, ARW, DNG…).';
       });
       return;
     }
@@ -117,7 +115,8 @@ class _ImageImportScreenState extends ConsumerState<ImageImportScreen> {
                     const SizedBox(height: 8),
                     Text(
                       '• Fotos do mesmo enquadramento empilham melhor.\n'
-                      '• Formatos aceitos: JPG, PNG, TIFF, BMP, WEBP.\n'
+                      '• Formatos: JPG, PNG, TIFF, BMP, WEBP e RAW de câmera '
+                      '(Canon CR2/CR3, Nikon NEF, Sony ARW, DNG e outros).\n'
                       '• Pode misturar tremidas e nítidas — o app descarta as piores se você quiser.',
                       style: Theme.of(context).textTheme.bodySmall,
                     ),

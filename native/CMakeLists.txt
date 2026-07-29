@@ -8,6 +8,26 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 # from gradle (externalNativeBuild.cmake.arguments) or -D on the CLI.
 find_package(OpenCV REQUIRED COMPONENTS core imgproc imgcodecs video)
 
+# LibRaw (vendored, LGPL-2.1/CDDL — see native/third_party/libraw/COPYRIGHT).
+# OpenCV's imgcodecs cannot read camera RAW (CR2/CR3/NEF/ARW/DNG…), so the
+# engine decodes those through LibRaw. Same vendored tree as AstroStitch;
+# `src/integration/` (Adobe DNG SDK / RawSpeed glue) is inert without external
+# SDKs and not compiled.
+file(GLOB_RECURSE LIBRAW_SOURCES third_party/libraw/src/*.cpp)
+# LibRaw ships placeholder stubs (*_ph.cpp) that define the SAME symbols as the
+# real files; compiling both duplicates symbols. Exclude the placeholders.
+list(FILTER LIBRAW_SOURCES EXCLUDE REGEX "_ph\\.cpp$")
+add_library(libraw_static STATIC ${LIBRAW_SOURCES})
+target_include_directories(libraw_static PUBLIC third_party/libraw)
+target_compile_definitions(libraw_static PUBLIC LIBRAW_NODLL)
+# dcraw-derived code is warning-noisy and not ours to clean up.
+target_compile_options(libraw_static PRIVATE -O3 -w)
+# zlib enables deflate-compressed DNG; available on the Android build (links z).
+if(ANDROID)
+  target_compile_definitions(libraw_static PUBLIC USE_ZLIB)
+  target_link_libraries(libraw_static PRIVATE z)
+endif()
+
 add_library(astro_engine SHARED
   engine/src/engine.cpp)
 
@@ -17,7 +37,7 @@ target_include_directories(astro_engine PRIVATE
 target_compile_options(astro_engine PRIVATE
   -O3 -fvisibility=hidden -Wall)
 
-target_link_libraries(astro_engine PRIVATE ${OpenCV_LIBS})
+target_link_libraries(astro_engine PRIVATE ${OpenCV_LIBS} libraw_static)
 
 if(ANDROID)
   target_link_libraries(astro_engine PRIVATE log android z)
@@ -32,7 +52,7 @@ if(ASTRO_BUILD_CLI)
   target_include_directories(astro_stack_cli PRIVATE engine/include)
   target_compile_options(astro_stack_cli PRIVATE -O3 -Wall)
   target_compile_definitions(astro_stack_cli PRIVATE ASTRO_DEBUG_LOG)
-  target_link_libraries(astro_stack_cli PRIVATE ${OpenCV_LIBS})
+  target_link_libraries(astro_stack_cli PRIVATE ${OpenCV_LIBS} libraw_static)
   if(ANDROID)
     target_link_libraries(astro_stack_cli PRIVATE log android z)
   endif()
