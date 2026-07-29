@@ -410,28 +410,46 @@ class _GainSlider extends StatelessWidget {
       children: [
         Row(
           children: [
-            Flexible(
-              child: Text(
-                label,
-                style: Theme.of(context).textTheme.bodyMedium,
-                overflow: TextOverflow.ellipsis,
+            Expanded(
+              child: Row(
+                children: [
+                  Flexible(
+                    child: Text(
+                      label,
+                      style: Theme.of(context).textTheme.bodyMedium,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
+                  if (info != null)
+                    InkWell(
+                      onTap: () => _showInfo(context),
+                      borderRadius: BorderRadius.circular(20),
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                        child: Icon(
+                          Icons.info_outline,
+                          size: 16,
+                          color: Theme.of(context).colorScheme.outline,
+                        ),
+                      ),
+                    ),
+                ],
               ),
             ),
-            if (info != null)
-              InkWell(
-                onTap: () => _showInfo(context),
-                borderRadius: BorderRadius.circular(20),
-                child: Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                  child: Icon(
-                    Icons.info_outline,
-                    size: 16,
-                    color: Theme.of(context).colorScheme.outline,
-                  ),
+            const SizedBox(width: 8),
+            // Bloco de largura fixa, à direita, com dígitos de largura uniforme
+            // (tabular) — assim todos os valores formam uma coluna alinhada,
+            // independentemente do tamanho do rótulo.
+            SizedBox(
+              width: 44,
+              child: Text(
+                value.toStringAsFixed(2),
+                textAlign: TextAlign.right,
+                style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                  fontFeatures: const [FontFeature.tabularFigures()],
                 ),
               ),
-            const Spacer(),
-            Text(value.toStringAsFixed(2), style: Theme.of(context).textTheme.bodySmall),
+            ),
           ],
         ),
         SliderTheme(
