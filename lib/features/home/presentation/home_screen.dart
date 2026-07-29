@@ -3,16 +3,37 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
 
+import '../../../core/distribution.dart';
 import '../../../core/domain/processing_stage.dart';
 import '../../../core/domain/project_type.dart';
+import '../../../core/services/update_prompt.dart';
 import '../../../core/widgets/astro_card.dart';
 import '../../history/application/history_controller.dart';
 
-class HomeScreen extends ConsumerWidget {
+class HomeScreen extends ConsumerStatefulWidget {
   const HomeScreen({super.key});
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<HomeScreen> createState() => _HomeScreenState();
+}
+
+class _HomeScreenState extends ConsumerState<HomeScreen> {
+  @override
+  void initState() {
+    super.initState();
+    // Sideload (APK no GitHub): sem atualização automática do sistema, então
+    // checamos nós mesmos, uma vez por abertura, e só avisamos se houver versão
+    // nova. A build da Play Store NUNCA chama isso (política da Play + a Play já
+    // atualiza sozinha).
+    if (!isPlayStoreBuild) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) maybePromptUpdate(context);
+      });
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
     final history = ref.watch(historyControllerProvider);
 
     return Scaffold(
