@@ -30,6 +30,18 @@ class _ImageImportScreenState extends ConsumerState<ImageImportScreen> {
   String? _error;
 
   Future<void> _pick() async {
+    // Seletor duplo (igual ao AstroStitch): a Galeria abre o seletor de fotos
+    // nativo (mais agradável para JPG/PNG/TIFF), mas o Android classifica RAW
+    // como octet-stream e o filtro de imagem os esconde — por isso "Arquivos"
+    // (FileType.any) existe como caminho para os RAW. Em ambos validamos por
+    // extensão abaixo.
+    final source = await showModalBottomSheet<FileType>(
+      context: context,
+      showDragHandle: true,
+      builder: (_) => const _AddSourceSheet(),
+    );
+    if (source == null) return;
+
     setState(() {
       _picking = true;
       _error = null;
@@ -37,12 +49,7 @@ class _ImageImportScreenState extends ConsumerState<ImageImportScreen> {
 
     FilePickerResult? result;
     try {
-      // FileType.any (não .image/.custom): o filtro de MIME do sistema esconde
-      // os RAW de câmera (CR2/CR3/NEF/ARW/DNG…) — eles não têm MIME de imagem
-      // conhecido no Android e simplesmente não aparecem no seletor filtrado.
-      // Mostramos tudo e validamos por extensão logo abaixo.
-      result = await FilePicker.platform
-          .pickFiles(type: FileType.any, allowMultiple: true);
+      result = await FilePicker.platform.pickFiles(type: source, allowMultiple: true);
     } catch (_) {
       setState(() {
         _picking = false;
@@ -141,6 +148,118 @@ class _ImageImportScreenState extends ConsumerState<ImageImportScreen> {
                     : const Icon(Icons.add_photo_alternate_outlined),
                 label: Text(_picking ? 'Abrindo...' : 'Selecionar imagens'),
               ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// Escolha da origem das imagens. A Galeria abre o seletor de fotos nativo
+/// (o preferido para JPG/PNG/TIFF); "Arquivos" existe porque só ele enxerga
+/// os RAW de câmera no Android.
+class _AddSourceSheet extends StatelessWidget {
+  const _AddSourceSheet();
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return SafeArea(
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(16, 4, 16, 16),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(8, 4, 8, 12),
+              child: Text(
+                'Adicionar de',
+                style: Theme.of(context)
+                    .textTheme
+                    .titleMedium
+                    ?.copyWith(fontWeight: FontWeight.w700),
+              ),
+            ),
+            _AddSourceOption(
+              icon: Icons.photo_library_rounded,
+              accent: scheme.primary,
+              title: 'Galeria de fotos',
+              subtitle: 'JPG, PNG e TIFF — seletor de fotos do sistema',
+              onTap: () => Navigator.of(context).pop(FileType.image),
+            ),
+            const SizedBox(height: 8),
+            _AddSourceOption(
+              icon: Icons.folder_open_rounded,
+              accent: scheme.tertiary,
+              title: 'Arquivos',
+              subtitle: 'RAW da câmera (CR2, CR3, NEF, ARW, DNG, RAF…) e qualquer imagem',
+              onTap: () => Navigator.of(context).pop(FileType.any),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _AddSourceOption extends StatelessWidget {
+  const _AddSourceOption({
+    required this.icon,
+    required this.accent,
+    required this.title,
+    required this.subtitle,
+    required this.onTap,
+  });
+
+  final IconData icon;
+  final Color accent;
+  final String title;
+  final String subtitle;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return Material(
+      color: scheme.surfaceContainerHighest,
+      borderRadius: BorderRadius.circular(14),
+      clipBehavior: Clip.antiAlias,
+      child: InkWell(
+        onTap: onTap,
+        child: Padding(
+          padding: const EdgeInsets.all(14),
+          child: Row(
+            children: [
+              Container(
+                width: 44,
+                height: 44,
+                decoration: BoxDecoration(
+                  color: accent.withValues(alpha: 0.14),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Icon(icon, color: accent, size: 24),
+              ),
+              const SizedBox(width: 14),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(title,
+                        style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 15)),
+                    const SizedBox(height: 2),
+                    Text(
+                      subtitle,
+                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                            color: scheme.onSurfaceVariant,
+                            height: 1.3,
+                          ),
+                    ),
+                  ],
+                ),
+              ),
+              Icon(Icons.chevron_right_rounded, color: scheme.onSurfaceVariant),
             ],
           ),
         ),
