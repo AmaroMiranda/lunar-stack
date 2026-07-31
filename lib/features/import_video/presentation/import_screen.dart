@@ -4,6 +4,7 @@ import 'package:go_router/go_router.dart';
 import 'package:video_player/video_player.dart';
 
 import '../../../app/state/project_draft_controller.dart';
+import '../../../core/domain/project_type.dart';
 import '../../../core/domain/video_metadata.dart';
 import '../../../core/widgets/astro_button.dart';
 import '../../../core/widgets/astro_card.dart';
@@ -38,7 +39,13 @@ class ImportScreen extends ConsumerWidget {
                 onChangeVideo: () => ref.read(importControllerProvider.notifier).pickVideo(),
                 onContinue: () {
                   ref.read(projectDraftProvider.notifier).setVideo(importState.metadata!);
-                  context.push('/flow');
+                  // O tipo já foi escolhido na home. "Apenas estabilizar" é um
+                  // passe só (sem análise de nitidez) → vai direto processar;
+                  // os fluxos que empilham passam pela análise de frames.
+                  final type = ref.read(projectDraftProvider).projectType;
+                  context.push(
+                    type == ProjectType.stabilization ? '/processing' : '/analysis',
+                  );
                 },
               ),
           },

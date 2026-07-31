@@ -265,7 +265,10 @@ class _AnalysisScreenState extends ConsumerState<AnalysisScreen> {
                 suggestedPercent: draft.suggestedPercent ?? 25,
                 reason: draft.suggestionReason ?? '',
                 isImages: draft.imageMode,
-                onContinue: () => context.push('/stack-config'),
+                // A sugestão já está gravada no config (frameSelectionPercent).
+                // Aceitar = ir direto processar; ajustar é opcional.
+                onContinue: () => context.push('/processing'),
+                onAdjust: () => context.push('/stack-config'),
               ),
           },
         ),
@@ -306,6 +309,7 @@ class _AnalysisResult extends StatelessWidget {
     required this.reason,
     required this.isImages,
     required this.onContinue,
+    required this.onAdjust,
   });
 
   final List<FrameQuality> frames;
@@ -313,6 +317,7 @@ class _AnalysisResult extends StatelessWidget {
   final String reason;
   final bool isImages;
   final VoidCallback onContinue;
+  final VoidCallback onAdjust;
 
   @override
   Widget build(BuildContext context) {
@@ -368,8 +373,14 @@ class _AnalysisResult extends StatelessWidget {
         const SizedBox(height: 24),
         FilledButton.icon(
           onPressed: onContinue,
-          icon: const Icon(Icons.arrow_forward),
-          label: const Text('Usar sugestão'),
+          icon: const Icon(Icons.auto_awesome),
+          label: Text('Usar sugestão (melhores $suggestedPercent%)'),
+        ),
+        const SizedBox(height: 8),
+        OutlinedButton.icon(
+          onPressed: onAdjust,
+          icon: const Icon(Icons.tune),
+          label: const Text('Ajustar configuração'),
         ),
       ],
     );

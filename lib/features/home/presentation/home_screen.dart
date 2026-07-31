@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
 
+import '../../../app/state/project_draft_controller.dart';
 import '../../../core/distribution.dart';
 import '../../../core/domain/processing_stage.dart';
 import '../../../core/domain/project_type.dart';
@@ -33,6 +34,15 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     }
   }
 
+  /// Começa um projeto de vídeo com a intenção JÁ escolhida aqui na home —
+  /// grava o tipo e vai direto pra importação. As telas seguintes não voltam
+  /// a perguntar o modo (antes havia uma tela /flow que repetia essa escolha).
+  void _startVideo(ProjectType type) {
+    ref.read(projectDraftProvider.notifier).reset();
+    ref.read(projectDraftProvider.notifier).setProjectType(type);
+    context.push('/import');
+  }
+
   /// Lua Mineral (imagem única): escolhe UMA foto já pronta e abre o estúdio de
   /// cor, sem empilhar. Passa o caminho como `extra` da rota /mineral.
   Future<void> _openMineral() async {
@@ -54,22 +64,29 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
             Text('LunarStack', style: Theme.of(context).textTheme.headlineMedium),
             const SizedBox(height: 6),
             Text(
-              'Estabilize e empilhe vídeos da Lua direto no Android.',
+              'Estabilize e empilhe vídeos da Lua para tirar fotos mais limpas.',
               style: Theme.of(context).textTheme.bodyMedium,
             ),
             const SizedBox(height: 24),
             _HomeActionCard(
               icon: Icons.center_focus_strong,
               title: 'Estabilizar vídeo',
-              description: 'Centralize a Lua e reduza tremores.',
-              onTap: () => context.push('/import'),
+              description: 'Centralize a Lua e reduza tremores. Gera um vídeo mais parado.',
+              onTap: () => _startVideo(ProjectType.stabilization),
             ),
             const SizedBox(height: 12),
             _HomeActionCard(
               icon: Icons.auto_awesome,
               title: 'Empilhar vídeo',
               description: 'Use os melhores frames do vídeo para gerar uma foto mais limpa.',
-              onTap: () => context.push('/import'),
+              onTap: () => _startVideo(ProjectType.stacking),
+            ),
+            const SizedBox(height: 12),
+            _HomeActionCard(
+              icon: Icons.blur_on,
+              title: 'Estabilizar + empilhar',
+              description: 'Vídeo tremido? Centraliza a Lua antes de empilhar. Recomendado.',
+              onTap: () => _startVideo(ProjectType.stabilizationPlusStacking),
             ),
             const SizedBox(height: 12),
             _HomeActionCard(
@@ -102,7 +119,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                 if (entries.isEmpty) {
                   return AstroCard(
                     child: Text(
-                      'Nenhum projeto ainda. Importe um vídeo da Lua para começar seu primeiro processamento.',
+                      'Nenhum projeto ainda. Importe um vídeo ou fotos da Lua para começar seu primeiro processamento.',
                       style: Theme.of(context).textTheme.bodyMedium,
                     ),
                   );

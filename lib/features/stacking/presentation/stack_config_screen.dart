@@ -151,7 +151,7 @@ class StackConfigScreen extends ConsumerWidget {
             FilledButton.icon(
               onPressed: () => context.push('/processing'),
               icon: const Icon(Icons.auto_awesome),
-              label: const Text('Empilhar imagem'),
+              label: const Text('Empilhar'),
             ),
           ],
         ),

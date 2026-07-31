@@ -1,7 +1,6 @@
 import 'package:go_router/go_router.dart';
 
 import '../features/analysis/presentation/analysis_screen.dart';
-import '../features/flow_selection/presentation/flow_selection_screen.dart';
 import '../features/history/presentation/history_screen.dart';
 import '../features/home/presentation/home_screen.dart';
 import '../features/import_images/presentation/image_import_screen.dart';
@@ -19,7 +18,6 @@ final appRouter = GoRouter(
     GoRoute(path: '/', builder: (context, state) => const HomeScreen()),
     GoRoute(path: '/import', builder: (context, state) => const ImportScreen()),
     GoRoute(path: '/import-images', builder: (context, state) => const ImageImportScreen()),
-    GoRoute(path: '/flow', builder: (context, state) => const FlowSelectionScreen()),
     GoRoute(path: '/analysis', builder: (context, state) => const AnalysisScreen()),
     GoRoute(path: '/stack-config', builder: (context, state) => const StackConfigScreen()),
     GoRoute(path: '/processing', builder: (context, state) => const ProcessingScreen()),
