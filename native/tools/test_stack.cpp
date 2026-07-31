@@ -5,9 +5,21 @@
 #include "astro_engine.h"
 
 #include <cstdio>
+#include <cstring>
 #include <vector>
 
 int main(int argc, char** argv) {
+  // Mineral-moon smoke test: <exe> mineral <in> <out.jpg>
+  if (argc >= 4 && std::strcmp(argv[1], "mineral") == 0) {
+    char err[1024] = {0};
+    const int32_t rc = as_mineral_adjust(
+        argv[2], /*sat*/ 2.3, /*vib*/ 1.5, /*colorNoise*/ 0.15,
+        /*falseColor*/ 0.5, /*r*/ 1.0, /*g*/ 1.0, /*b*/ 1.0, /*intensity*/ 1.0,
+        /*full_disc*/ 0, /*warmth*/ 0.0, /*disc_mask*/ 1, /*max_dim*/ 0, argv[3],
+        err, sizeof(err));
+    std::printf("mineral rc=%d err=%s\n", rc, err);
+    return rc == 0 ? 0 : 1;
+  }
   if (argc < 5) {
     std::fprintf(stderr, "usage: %s <out.png> <preview.jpg> <frame1> <frame2> ...\n", argv[0]);
     return 1;

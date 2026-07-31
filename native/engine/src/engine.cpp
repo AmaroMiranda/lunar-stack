@@ -356,6 +356,388 @@ void wavelet_sharpen_bgr(Mat& img_f /* CV_32FC3, 0..255 */, const std::vector<fl
   merge(bgr, img_f);
 }
 
+
+// ===== Lua Mineral (portado do AstroStitch) =====
+
+Mat lunar_content_mask(const Mat& bgr, bool phase_aware = false) {
+  Mat gray;
+  if (bgr.channels() == 3) {
+    cvtColor(bgr, gray, COLOR_BGR2GRAY);
+  } else {
+    gray = bgr;
+  }
+  if (gray.depth() == CV_16U) gray.convertTo(gray, CV_8U, 1.0 / 257.0);
+  // Contrast-normalize first so the threshold works on faint linear-stacked
+  // frames too (a fixed cut wiped out a disk compressed into the low 12% of
+  // the range). Otsu then finds the sky/disk valley automatically; cap it low
+  // so real dark maria are never masked out of a high-contrast frame.
+  Mat norm;
+  normalize(gray, norm, 0, 255, NORM_MINMAX, CV_8U);
+  Mat tmp;
+  const double otsu =
+      threshold(norm, tmp, 0, 255, THRESH_BINARY | THRESH_OTSU);
+  Mat mask;
+  threshold(norm, mask, std::min(otsu, 25.0), 255, THRESH_BINARY);
+  if (phase_aware) {
+    // Partial phases (crescent/gibbous): the terminator fades gradually, and
+    // the capped threshold bites ragged chunks out of that dim sunlit terrain
+    // — tiles then leave those regions uncovered and the mosaic shows black
+    // holes along the terminator. Recover them by keeping every low-threshold
+    // component CONNECTED to the bright disk; sky noise stays out because it
+    // is disconnected. (Not used for the solar disk: its limb is a hard edge
+    // and the low threshold would only pull in glow.)
+    Mat weak;
+    threshold(norm, weak, 5.0, 255, THRESH_BINARY);
+    Mat k5 = getStructuringElement(MORPH_ELLIPSE, Size(5, 5));
+    morphologyEx(weak, weak, MORPH_CLOSE, k5);
+    Mat labels;
+    const int ncomp = connectedComponents(weak, labels, 8, CV_32S);
+    std::vector<uint8_t> keep(static_cast<size_t>(std::max(ncomp, 1)), 0);
+    for (int y = 0; y < labels.rows; ++y) {
+      const int* lr = labels.ptr<int>(y);
+      const uchar* sr = mask.ptr<uchar>(y);
+      for (int x = 0; x < labels.cols; ++x) {
+        if (sr[x] && lr[x] > 0) keep[static_cast<size_t>(lr[x])] = 1;
+      }
+    }
+    for (int y = 0; y < labels.rows; ++y) {
+      const int* lr = labels.ptr<int>(y);
+      uchar* mr = mask.ptr<uchar>(y);
+      for (int x = 0; x < labels.cols; ++x) {
+        mr[x] = (lr[x] > 0 && keep[static_cast<size_t>(lr[x])]) ? 255 : 0;
+      }
+    }
+  }
+  Mat k = getStructuringElement(MORPH_ELLIPSE, Size(9, 9));
+  morphologyEx(mask, mask, MORPH_CLOSE, k);
+  // Speckle removal that PRESERVES the true disc boundary. A morphological OPEN
+  // here (erode→dilate) removed sky speckle but also ate a ~4px band off the
+  // dim OUTER LIMB — real edge craters vanished from the mosaic (a good stitcher
+  // feathers overlaps but never erodes the subject's outer edge). Drop small
+  // isolated components instead: the Moon/Sun disc is by far the largest, so
+  // sky speckle that passed the threshold is removed while the disc keeps its
+  // exact edge. Threshold scales with the disc so it is resolution-independent.
+  {
+    Mat labels, stats, centroids;
+    const int nlab =
+        connectedComponentsWithStats(mask, labels, stats, centroids, 8, CV_32S);
+    int best_area = 0;
+    for (int i = 1; i < nlab; ++i) {
+      best_area = std::max(best_area, stats.at<int>(i, CC_STAT_AREA));
+    }
+    if (best_area > 0) {
+      const int min_keep = std::max(64, best_area / 500);
+      Mat clean = Mat::zeros(mask.size(), CV_8U);
+      for (int i = 1; i < nlab; ++i) {
+        if (stats.at<int>(i, CC_STAT_AREA) >= min_keep) {
+          clean.setTo(255, labels == i);
+        }
+      }
+      mask = clean;
+    }
+  }
+  return mask;
+}
+
+void apply_mineral_moon(Mat& bgr, double saturation, double vibrance,
+                        double colorNoise, double falseColor, double rGain = 1.0,
+                        double gGain = 1.0, double bGain = 1.0,
+                        double intensity = 0.6, bool fullDisc = false,
+                        double warmth = 0.0, bool discMask = true) {
+  if (bgr.empty() || bgr.channels() != 3) return;  // mono: nothing to tint
+  const int depth = bgr.depth();
+  const double maxv = (depth == CV_16U) ? 65535.0 : 255.0;
+  Mat f;
+  bgr.convertTo(f, CV_32F, 1.0 / maxv);
+
+  // Máscara do DISCO lunar: o grade de cor deve valer só no disco, não no céu/
+  // fundo (o usuário reportou a cor sendo aplicada na imagem toda). Guardamos o
+  // original e, no fim, restauramos tudo fora do disco. `orig_f` é a referência
+  // do "fora"; `disc_alpha` (0..1, borda suavizada) é o peso de mistura. Se a
+  // detecção falhar ou o disco cobrir o quadro todo, `disc_alpha` fica vazio e
+  // o grade vale para tudo (comportamento antigo) — fallback seguro.
+  //
+  // No modo CLOSE-UP (crateras / região ampliada) não há disco nem céu — o
+  // quadro inteiro é superfície lunar. `discMask=false` desliga a máscara e
+  // grada tudo, senão a detecção confinaria a cor a uma mancha brilhante à toa.
+  const Mat orig_f = f.clone();
+  Mat disc_alpha;
+  if (discMask) {
+    Mat disc = lunar_content_mask(bgr, /*phase_aware=*/true);
+    const double area = disc.empty() ? 0.0 : countNonZero(disc);
+    const double total = static_cast<double>(disc.total());
+    if (area > 0.02 * total && area < 0.995 * total) {
+      // Dilata um filete (a cor chega até o limbo real) e suaviza a transição
+      // para o céu, evitando uma emenda dura na borda.
+      const double fsig = std::max(1.0, 0.0012 * std::min(bgr.rows, bgr.cols));
+      disc.convertTo(disc_alpha, CV_32F, 1.0 / 255.0);
+      dilate(disc_alpha, disc_alpha, getStructuringElement(MORPH_ELLIPSE, Size(5, 5)));
+      GaussianBlur(disc_alpha, disc_alpha, Size(0, 0), fsig);
+      min(disc_alpha, 1.0f, disc_alpha);
+    }
+  }
+
+  // 1. Gray-world neutralization over the WELL-lit surface. The threshold is
+  //    deliberately above the limb fade (0.06, not 0.02) so the dim terminator
+  //    edge — where colour is mostly noise — can't bias the balance and later
+  //    surface as a coloured rim.
+  {
+    std::vector<Mat> ch;
+    split(f, ch);
+    Mat luma = 0.114f * ch[0] + 0.587f * ch[1] + 0.299f * ch[2];
+    Mat lit = luma > 0.06f;
+    if (countNonZero(lit) > 100) {
+      const Scalar mb = mean(f, lit);
+      const double gray = (mb[0] + mb[1] + mb[2]) / 3.0;
+      for (int c = 0; c < 3; ++c) {
+        if (mb[c] > 1e-6) ch[c] *= static_cast<float>(gray / mb[c]);
+      }
+      merge(ch, f);
+    }
+  }
+  max(f, 0.0f, f);
+  min(f, 1.0f, f);
+
+  Mat ycc;
+  cvtColor(f, ycc, COLOR_BGR2YCrCb);  // Y,Cr,Cb in 0..1 (chroma centered 0.5)
+  std::vector<Mat> yc;
+  split(ycc, yc);
+  Mat& Y = yc[0];
+  Mat cr = yc[1] - 0.5f;
+  Mat cb = yc[2] - 0.5f;
+
+  // 2. Chroma-only noise reduction: blur Cr/Cb (Y untouched → detail stays
+  //    sharp). Deliberately GENTLE — the Moon's real mineral colour is itself
+  //    fairly fine-scale, so a strong chroma blur greys the disk (measured:
+  //    sigma≈1.9 cut real blue↔orange chroma to ~23%). This removes only the
+  //    worst speckle; raising the slider trades colour for smoothness and is
+  //    the user's call (default is low). sigma tops out ~1.5px at full.
+  if (colorNoise > 0.0) {
+    const double sigma = colorNoise * 1.5;
+    GaussianBlur(cr, cr, Size(0, 0), sigma);
+    GaussianBlur(cb, cb, Size(0, 0), sigma);
+  }
+
+  // 3. False-colour suppression: remove the diagonal (green+magenta) component
+  //    (Cr+Cb)/2, leaving only the real blue↔orange axis.
+  if (falseColor > 0.0) {
+    Mat off = (cr + cb) * 0.5f;
+    cr = cr - off * static_cast<float>(falseColor);
+    cb = cb - off * static_cast<float>(falseColor);
+  }
+
+  // 4. Saturation + vibrance, gated by a shadow-protection weight so the dim
+  //    limb is not amplified (the source of the blue edge band). Vibrance adds
+  //    extra gain to weakly-coloured pixels, tapering off as chroma grows.
+  Mat chroma;
+  magnitude(cr, cb, chroma);
+  Mat vibGain = chroma * 4.0f;
+  min(vibGain, 1.0f, vibGain);
+  vibGain = (1.0f - vibGain) * static_cast<float>(vibrance);
+  // Shadow + LIMB protection. The weight comes from the LOCAL-MIN luma (Y
+  // eroded), not Y itself: a pixel is attenuated when it is dim OR when a very
+  // dark sky pixel lies within `lr` of it — i.e. the thin band just inside the
+  // limb. Without this, strong saturation turns the limb's real chromatic-
+  // aberration fringe (blue on one edge, orange on the opposite) into a vivid
+  // coloured HALO ringing the whole disk. The interior surface, whose whole
+  // neighbourhood is lit, keeps w=1 and full colour. `lr` scales with size.
+  Mat w;
+  // No close-up (sem máscara de disco) não há limbo nem céu — e as sombras de
+  // cratera têm cor real, então a proteção por luma-mínima (que atenuaria essas
+  // sombras) é indesejada. Grade uniforme (w=1), como no "disco inteiro".
+  if (fullDisc || !discMask) {
+    // "Aplicar no disco inteiro" (escolha do usuário): sem atenuação de limbo,
+    // a cor mineral chega até a borda do disco — nada de faixa incolor. O custo
+    // é que a franja de aberração cromática do limbo pode aparecer levemente
+    // colorida; é uma troca que o usuário optou por fazer explicitamente.
+    w = Mat::ones(Y.size(), CV_32F);
+  } else {
+    // Banda de proteção do limbo: só o FILETE da franja de CA (2-4px na borda),
+    // não uma margem larga. 1.2% comia ~36px, 0.5% ainda deixava ~15px sem cor;
+    // 0.25% (~7px num disco de 3000) cobre a franja e deixa a cor chegar à borda,
+    // como na referência (que tem mineral até o limbo).
+    const int lr = std::max(
+        2, static_cast<int>(std::round(0.0025 * std::min(bgr.rows, bgr.cols))));
+    // Local-min of luma to find the near-limb band, computed on a 1/4-scale copy
+    // so the erode is cheap regardless of resolution — a full-res erode with a
+    // large kernel froze the live preview and the save on full-res masters
+    // (v0.34.1 regression). The weight is smooth (a band along the limb), so the
+    // downscale/upscale is invisible. MORPH_RECT (separable) on top.
+    Mat Ymin;
+    {
+      const double s = 0.25;
+      Mat small;
+      resize(Y, small, Size(), s, s, INTER_AREA);
+      const int lrs = std::max(1, static_cast<int>(std::round(lr * s)));
+      erode(small, small,
+            getStructuringElement(MORPH_RECT, Size(2 * lrs + 1, 2 * lrs + 1)));
+      resize(small, Ymin, Y.size(), 0, 0, INTER_LINEAR);
+    }
+    w = (Ymin - 0.05f) * (1.0f / 0.15f);  // 0 at Ymin≤0.05, 1 at Ymin≥0.20
+    max(w, 0.0f, w);
+    min(w, 1.0f, w);
+  }
+
+  // Pass 1: the user's normal saturation+vibrance gain (unchanged formula).
+  Mat gain = 1.0f + w.mul(vibGain + static_cast<float>(saturation));
+  cr = cr.mul(gain);
+  cb = cb.mul(gain);
+
+  // Pass 2: adaptive auto-stretch. Real per-shot chroma signal varies hugely
+  // — a well-exposed dedicated astro capture and a bright, JPEG-compressed
+  // phone photo can differ 5x+ in raw mineral-colour signal. A fixed
+  // saturation multiplier alone either does nothing on a weak source or is
+  // overkill on a strong one. So MEASURE what pass 1 actually achieved (90th
+  // percentile chroma over the lit disk, ground truth — not a prediction)
+  // and, only if it still falls short of a fixed target, multiply the
+  // REMAINING gap on top. An already-vivid source (real dedicated astro
+  // data, or a weak source pass 1 already lifted enough) measures at/above
+  // target and gets autoMul≈1 — no double-counting on top of the user's
+  // saturation slider.
+  {
+    magnitude(cr, cb, chroma);
+    Mat litMask = Y > 0.06f;
+    const int lit_n = countNonZero(litMask);
+    double autoMul = 1.0;
+    if (lit_n > 100) {
+      std::vector<float> vals;
+      vals.reserve(static_cast<size_t>(lit_n));
+      for (int y = 0; y < chroma.rows; ++y) {
+        const float* cp = chroma.ptr<float>(y);
+        const uchar* lp = litMask.ptr<uchar>(y);
+        for (int x = 0; x < chroma.cols; ++x) {
+          if (lp[x]) vals.push_back(cp[x]);
+        }
+      }
+      const size_t idx = static_cast<size_t>(vals.size() * 0.90);
+      std::nth_element(vals.begin(), vals.begin() + idx, vals.end());
+      const double p90 = vals[idx];
+      // Source-variance FLOOR (boost-only): a weak/compressed source whose
+      // pass-1 chroma is well below a baseline gets lifted up to it, so it is
+      // not colourless. A source that already reached the baseline — or whose
+      // Saturation/Vibration pushed past it — is LEFT ALONE (autoMul≈1). This is
+      // the fix for "saturation/vibration doing nothing": the old code RE-
+      // NORMALISED to a target and divided their effect back out; a boost-only
+      // floor never caps, so the sliders stay effective above it. The master
+      // Intensity (applied after this block) does the dialling UP and DOWN.
+      // Reference mineral moons (5 measured: Lucca, astropix, etc.) sit at
+      // chroma p90 ≈ 0.045–0.061 — so kFloorP90 = 0.05 is the validated target.
+      // The cap was 4×, which left a very weak phone source (measured output
+      // p90 ≈ 0.015) short of the target; 8× lets even a faint source reach the
+      // reference level. Boost-only: a strong source is never pushed down here.
+      // O piso antigo (levantar TODA fonte com p90<0.05 ATÉ 0.05) mascarava
+      // Saturação/Vibração: uma fonte fraca a sat=2.5 e a mesma a sat=6 caíam
+      // as duas em 0.05 — os sliders "não funcionavam" (3ª reclamação disso).
+      // Agora o piso é uma rede de segurança GENTIL, que só dispara em fontes
+      // QUASE SEM COR (p90 < gatilho) e levanta de leve (raiz, teto baixo). Para
+      // qualquer fonte com cor de verdade (a esmagadora maioria) autoMul≈1, e o
+      // nível fica 100% nas mãos do usuário (sat/vib + Intensidade).
+      constexpr double kFloorTrigger = 0.028;  // só fontes bem fracas
+      constexpr double kFloorTarget = 0.045;
+      if (p90 > 1e-4 && p90 < kFloorTrigger) {
+        autoMul = std::clamp(std::sqrt(kFloorTarget / p90), 1.0, 2.5);
+      }
+      AS_LOG("mineral floor: p90=%.5f mul=%.3f intensity=%.2f",
+             p90, autoMul, intensity);
+    }
+    // A weak source's chroma p90 is dominated by JPEG block noise, not real
+    // mineral colour (measured: multiplying a real phone photo's post-gain
+    // chroma further painted visible orange/blue 8x8-block speckle across
+    // smooth mare — not the smooth colour a stronger source shows at the
+    // same gain). Real lunar colour varies over tens/hundreds of pixels
+    // (whole maria); block noise varies pixel-to-pixel. So when autoMul is
+    // doing real work, smooth cr/cb FIRST — proportional to how much extra
+    // push is needed — so we stretch the real large-scale structure, not the
+    // noise floor. A source that already met target (autoMul≈1) gets no
+    // extra blur, same as before this feature existed.
+    if (autoMul > 1.05) {
+      const double extraSigma = std::min(2.5, 0.9 * (autoMul - 1.0));
+      GaussianBlur(cr, cr, Size(0, 0), extraSigma);
+      GaussianBlur(cb, cb, Size(0, 0), extraSigma);
+    }
+    if (autoMul > 1.001) {
+      cr = cr * static_cast<float>(autoMul);
+      cb = cb * static_cast<float>(autoMul);
+    }
+  }
+
+  // Master INTENSITY: a final scale on the whole graded chroma. 1.0 = the base
+  // look; below 1 dials toward neutral (the user can ALWAYS reduce the colour,
+  // instead of it being forced); above 1 pushes stronger. Because it multiplies
+  // the already-graded cr/cb, the Saturation/Vibration work stays visible and
+  // Intensity rides on top of it.
+  if (std::abs(intensity - 1.0) > 1e-3) {
+    cr = cr * static_cast<float>(intensity);
+    cb = cb * static_cast<float>(intensity);
+  }
+
+  // Tom (quente↔frio): o eixo estético em que as boas luas minerais de fato
+  // variam (medido: da Lucca mais azul à astropix mais quente). Em YCrCb o
+  // ocre/laranja das terras altas pesa no +Cr e o azul dos mares no +Cb;
+  // warmth>0 realça o lado quente e recua o frio, warmth<0 o inverso.
+  // 0 = neutro (no-op). Faixa útil -1..+1.
+  if (std::abs(warmth) > 1e-3) {
+    const float wf = static_cast<float>(std::clamp(warmth, -1.0, 1.0));
+    cr = cr * (1.0f + 0.5f * wf);
+    cb = cb * (1.0f - 0.5f * wf);
+  }
+
+  // Redução de ruído de cor NA IMAGEM FINAL. O blur de croma do passo 2 acontece
+  // ANTES dos ganhos (saturação/vibração/autoMul/intensidade), que re-amplificam
+  // o croma — então o speckle de cor que o usuário realmente vê é pós-ganho e o
+  // blur inicial não o alcança (era o "parece não estar sendo aplicada"). Aqui,
+  // no croma já graduado e com o Y intacto (detalhe preservado), o blur age
+  // exatamente sobre o ruído visível. A cor mineral real é de larga escala
+  // (dezenas de px), então sobrevive; o slider controla o quanto (é a escolha do
+  // usuário trocar cor por suavidade).
+  if (colorNoise > 0.0) {
+    const double finalSigma = colorNoise * 4.0;  // slider 1.0 -> ~4px (forte)
+    GaussianBlur(cr, cr, Size(0, 0), finalSigma);
+    GaussianBlur(cb, cb, Size(0, 0), finalSigma);
+  }
+
+  yc[1] = cr + 0.5f;
+  yc[2] = cb + 0.5f;
+  max(yc[1], 0.0f, yc[1]);
+  min(yc[1], 1.0f, yc[1]);
+  max(yc[2], 0.0f, yc[2]);
+  min(yc[2], 1.0f, yc[2]);
+  merge(yc, ycc);
+  cvtColor(ycc, f, COLOR_YCrCb2BGR);
+
+  // 5. Per-channel RGB balance (studio fine-tuning). Applied to the final BGR,
+  //    AFTER the luma-preserving chroma grade, as a white-balance-style tint the
+  //    user dials in on top: warm the highlands, cool the maria, or correct a
+  //    residual cast. Neutral (1,1,1) leaves the image byte-identical. f is BGR,
+  //    so index 0=B, 1=G, 2=R.
+  if (rGain != 1.0 || gGain != 1.0 || bGain != 1.0) {
+    std::vector<Mat> bch;
+    split(f, bch);
+    bch[0] *= static_cast<float>(bGain);
+    bch[1] *= static_cast<float>(gGain);
+    bch[2] *= static_cast<float>(rGain);
+    merge(bch, f);
+  }
+
+  max(f, 0.0f, f);
+  min(f, 1.0f, f);
+
+  // Confina o grade ao DISCO lunar: fora do disco, restaura o pixel original
+  // (o céu/fundo não é tingido). Mistura por alpha suavizado no limbo:
+  //   out = orig·(1-a) + graded·a.  Vazio => grade vale para tudo (fallback).
+  if (!disc_alpha.empty()) {
+    std::vector<Mat> gch, och;
+    split(f, gch);
+    split(orig_f, och);
+    for (int c = 0; c < 3; ++c) {
+      gch[c] = och[c].mul(1.0f - disc_alpha) + gch[c].mul(disc_alpha);
+    }
+    merge(gch, f);
+  }
+
+  f.convertTo(bgr, depth, maxv);
+}
+
 }  // namespace
 
 int32_t as_version(char* buf, int32_t buf_len) {
@@ -807,6 +1189,63 @@ int32_t as_wavelet_sharpen(const char* in_path, const float* layer_gains, int32_
       params = {IMWRITE_TIFF_PREDICTOR, IMWRITE_TIFF_PREDICTOR_NONE};
     } else {
       img_f.convertTo(out, CV_8UC3);
+      if (want_jpeg) params = {IMWRITE_JPEG_QUALITY, 95};
+    }
+    if (!imwrite(out_path, out, params)) {
+      fail_msg(err_buf, err_len, std::string("failed to write ") + out_path);
+      return AS_ERR_ENCODE;
+    }
+    return AS_OK;
+  } catch (const std::exception& e) {
+    fail_msg(err_buf, err_len, std::string("internal error: ") + e.what());
+    return AS_ERR_INTERNAL;
+  }
+}
+
+// "Lua Mineral": realça a cor mineral REAL da Lua (titânio→azul, ferro→laranja)
+// sobre uma imagem salva (um stack pronto ou uma foto única), sem mexer no
+// brilho/detalhe. Portado do AstroStitch. max_dim>0 processa uma cópia reduzida
+// para a prévia ao vivo; 0 = resolução cheia ao salvar. Formato pela extensão.
+int32_t as_mineral_adjust(const char* in_path, double saturation, double vibrance,
+                          double color_noise, double false_color, double r_gain,
+                          double g_gain, double b_gain, double intensity,
+                          int32_t full_disc, double warmth, int32_t disc_mask,
+                          int32_t max_dim, const char* out_path, char* err_buf,
+                          int32_t err_len) {
+  if (in_path == nullptr || out_path == nullptr) {
+    fail_msg(err_buf, err_len, "in_path and out_path are required");
+    return AS_ERR_INVALID_ARGS;
+  }
+  try {
+    Mat img = imread_any(in_path, IMREAD_UNCHANGED);
+    if (img.empty()) {
+      fail_msg(err_buf, err_len, std::string("could not decode ") + in_path);
+      return AS_ERR_DECODE;
+    }
+    if (img.channels() == 4) cvtColor(img, img, COLOR_BGRA2BGR);
+    if (img.channels() == 1) cvtColor(img, img, COLOR_GRAY2BGR);  // mono: no-op grade
+    if (max_dim > 0) {
+      const double s = resize_scale_for_max_dim(img.cols, img.rows, max_dim);
+      if (s < 1.0) resize(img, img, Size(), s, s, INTER_AREA);
+    }
+    apply_mineral_moon(img, saturation, vibrance, color_noise, false_color,
+                       r_gain, g_gain, b_gain, intensity, full_disc != 0, warmth,
+                       disc_mask != 0);
+
+    const std::string out_str(out_path);
+    const auto ends_with = [&out_str](const char* suf) {
+      const size_t n = std::strlen(suf);
+      return out_str.size() >= n && out_str.compare(out_str.size() - n, n, suf) == 0;
+    };
+    const bool want_tiff = ends_with(".tif") || ends_with(".tiff");
+    const bool want_jpeg = ends_with(".jpg") || ends_with(".jpeg");
+    Mat out = img;
+    std::vector<int> params;
+    if (want_tiff) {
+      if (img.depth() != CV_16U) img.convertTo(out, CV_16UC3, 257.0);
+      params = {IMWRITE_TIFF_PREDICTOR, IMWRITE_TIFF_PREDICTOR_NONE};
+    } else {
+      if (img.depth() == CV_16U) img.convertTo(out, CV_8UC3, 1.0 / 257.0);
       if (want_jpeg) params = {IMWRITE_JPEG_QUALITY, 95};
     }
     if (!imwrite(out_path, out, params)) {

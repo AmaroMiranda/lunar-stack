@@ -21,7 +21,11 @@ add_library(libraw_static STATIC ${LIBRAW_SOURCES})
 target_include_directories(libraw_static PUBLIC third_party/libraw)
 target_compile_definitions(libraw_static PUBLIC LIBRAW_NODLL)
 # dcraw-derived code is warning-noisy and not ours to clean up.
-target_compile_options(libraw_static PRIVATE -O3 -w)
+if(MSVC)
+  target_compile_options(libraw_static PRIVATE /w)
+else()
+  target_compile_options(libraw_static PRIVATE -O3 -w)
+endif()
 # zlib enables deflate-compressed DNG; available on the Android build (links z).
 if(ANDROID)
   target_compile_definitions(libraw_static PUBLIC USE_ZLIB)
@@ -34,8 +38,13 @@ add_library(astro_engine SHARED
 target_include_directories(astro_engine PRIVATE
   engine/include)
 
-target_compile_options(astro_engine PRIVATE
-  -O3 -fvisibility=hidden -Wall)
+if(MSVC)
+  target_compile_definitions(astro_engine PRIVATE
+    NOMINMAX WIN32_LEAN_AND_MEAN _USE_MATH_DEFINES)
+else()
+  target_compile_options(astro_engine PRIVATE
+    -O3 -fvisibility=hidden -Wall)
+endif()
 
 target_link_libraries(astro_engine PRIVATE ${OpenCV_LIBS} libraw_static)
 
@@ -50,8 +59,13 @@ if(ASTRO_BUILD_CLI)
     engine/src/engine.cpp
     tools/test_stack.cpp)
   target_include_directories(astro_stack_cli PRIVATE engine/include)
-  target_compile_options(astro_stack_cli PRIVATE -O3 -Wall)
-  target_compile_definitions(astro_stack_cli PRIVATE ASTRO_DEBUG_LOG)
+  if(MSVC)
+    target_compile_definitions(astro_stack_cli PRIVATE
+      ASTRO_DEBUG_LOG NOMINMAX WIN32_LEAN_AND_MEAN _USE_MATH_DEFINES)
+  else()
+    target_compile_options(astro_stack_cli PRIVATE -O3 -Wall)
+    target_compile_definitions(astro_stack_cli PRIVATE ASTRO_DEBUG_LOG)
+  endif()
   target_link_libraries(astro_stack_cli PRIVATE ${OpenCV_LIBS} libraw_static)
   if(ANDROID)
     target_link_libraries(astro_stack_cli PRIVATE log android z)

@@ -124,6 +124,26 @@ AS_EXPORT int32_t as_wavelet_sharpen(const char* in_path,
                                       char* err_buf,
                                       int32_t err_len);
 
+// "Lua Mineral": amplifies the Moon's REAL faint mineral colour (titanium→blue,
+// iron→orange) on a saved image (a finished stack or a single photo), leaving
+// brightness/detail untouched. Chroma-only grade in YCrCb; disc-masked so the
+// sky isn't tinted (disc_mask=0 grades the whole frame, for a crater close-up).
+//   saturation/vibrance: chroma gain / extra gain on weak colour
+//   color_noise: chroma denoise   false_color: green+magenta removal (0..1)
+//   r/g/b_gain: final per-channel white-balance tweak (1 = neutral)
+//   intensity: master colour multiplier   warmth: blue↔orange tone bias (-1..1)
+//   full_disc: 1 = colour reaches the very limb (no protective fade)
+//   max_dim: >0 = process a downscaled copy for a live preview; 0 = full res.
+// Output format follows out_path's extension. Mono input is a pass-through.
+AS_EXPORT int32_t as_mineral_adjust(const char* in_path,
+                                     double saturation, double vibrance,
+                                     double color_noise, double false_color,
+                                     double r_gain, double g_gain, double b_gain,
+                                     double intensity, int32_t full_disc,
+                                     double warmth, int32_t disc_mask,
+                                     int32_t max_dim, const char* out_path,
+                                     char* err_buf, int32_t err_len);
+
 // Pull the latest progress snapshot (thread-safe, non-blocking).
 AS_EXPORT void as_poll_progress(AsProgress* out);
 

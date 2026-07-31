@@ -283,6 +283,12 @@ class _ResultScreenState extends ConsumerState<ResultScreen> {
             ),
             const SizedBox(height: 8),
             OutlinedButton.icon(
+              onPressed: _exporting ? null : () => context.push('/mineral'),
+              icon: const Icon(Icons.palette_outlined),
+              label: const Text('Lua Mineral (realçar a cor)'),
+            ),
+            const SizedBox(height: 8),
+            OutlinedButton.icon(
               onPressed: () {
                 ref.read(projectDraftProvider.notifier).reset();
                 context.go('/');

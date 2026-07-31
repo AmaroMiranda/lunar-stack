@@ -1,3 +1,4 @@
+import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -30,6 +31,15 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
         if (mounted) maybePromptUpdate(context);
       });
     }
+  }
+
+  /// Lua Mineral (imagem única): escolhe UMA foto já pronta e abre o estúdio de
+  /// cor, sem empilhar. Passa o caminho como `extra` da rota /mineral.
+  Future<void> _openMineral() async {
+    final res = await FilePicker.platform.pickFiles(type: FileType.image);
+    final path = res?.files.single.path;
+    if (path == null || !mounted) return;
+    context.push('/mineral', extra: path);
   }
 
   @override
@@ -67,6 +77,13 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
               title: 'Empilhar imagens',
               description: 'Já tem várias fotos da Lua? Alinhe e empilhe direto, sem vídeo.',
               onTap: () => context.push('/import-images'),
+            ),
+            const SizedBox(height: 12),
+            _HomeActionCard(
+              icon: Icons.palette_outlined,
+              title: 'Lua Mineral',
+              description: 'Realce a cor mineral real da Lua numa foto já pronta.',
+              onTap: _openMineral,
             ),
             const SizedBox(height: 28),
             Row(

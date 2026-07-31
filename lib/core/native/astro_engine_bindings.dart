@@ -144,6 +144,13 @@ typedef _WaveletC = Int32 Function(Pointer<Utf8>, Pointer<Float>, Int32, Float, 
 typedef _WaveletDart = int Function(Pointer<Utf8>, Pointer<Float>, int, double, int,
     Pointer<Utf8>, Pointer<Utf8>, int);
 
+typedef _MineralC = Int32 Function(Pointer<Utf8>, Double, Double, Double, Double,
+    Double, Double, Double, Double, Int32, Double, Int32, Int32, Pointer<Utf8>,
+    Pointer<Utf8>, Int32);
+typedef _MineralDart = int Function(Pointer<Utf8>, double, double, double, double,
+    double, double, double, double, int, double, int, int, Pointer<Utf8>,
+    Pointer<Utf8>, int);
+
 typedef _PollC = Void Function(Pointer<_AsProgress>);
 typedef _PollDart = void Function(Pointer<_AsProgress>);
 
@@ -165,6 +172,7 @@ class AstroEngine {
         _stack = lib.lookupFunction<_StackC, _StackDart>('as_stack'),
         _convert = lib.lookupFunction<_ConvertC, _ConvertDart>('as_convert_image'),
         _wavelet = lib.lookupFunction<_WaveletC, _WaveletDart>('as_wavelet_sharpen'),
+        _mineral = lib.lookupFunction<_MineralC, _MineralDart>('as_mineral_adjust'),
         _poll = lib.lookupFunction<_PollC, _PollDart>('as_poll_progress'),
         _result = lib.lookupFunction<_ResultC, _ResultDart>('as_get_stack_result'),
         _cancelFn = lib.lookupFunction<_CancelC, _CancelDart>('as_cancel');
@@ -183,6 +191,7 @@ class AstroEngine {
   final _StackDart _stack;
   final _ConvertDart _convert;
   final _WaveletDart _wavelet;
+  final _MineralDart _mineral;
   final _PollDart _poll;
   final _ResultDart _result;
   final _CancelDart _cancelFn;
@@ -318,6 +327,51 @@ class AstroEngine {
     });
   }
 
+  /// "Lua Mineral": grades the Moon's real mineral colour on a saved image.
+  /// Blocking — run through [mineralAdjustIsolate]. maxDim>0 for a fast preview.
+  void mineralAdjust({
+    required String inPath,
+    required String outPath,
+    required double saturation,
+    required double vibrance,
+    required double colorNoise,
+    required double falseColor,
+    double rGain = 1.0,
+    double gGain = 1.0,
+    double bGain = 1.0,
+    double intensity = 1.0,
+    bool fullDisc = false,
+    double warmth = 0.0,
+    bool discMask = true,
+    int maxDim = 0,
+  }) {
+    using((arena) {
+      const errLen = 512;
+      final errBuf = arena.allocate<Utf8>(errLen);
+      final rc = _mineral(
+        inPath.toNativeUtf8(allocator: arena),
+        saturation,
+        vibrance,
+        colorNoise,
+        falseColor,
+        rGain,
+        gGain,
+        bGain,
+        intensity,
+        fullDisc ? 1 : 0,
+        warmth,
+        discMask ? 1 : 0,
+        maxDim,
+        outPath.toNativeUtf8(allocator: arena),
+        errBuf,
+        errLen,
+      );
+      if (rc != 0) {
+        throw EngineException(rc, errBuf.toDartString());
+      }
+    });
+  }
+
   EngineProgress pollProgress() {
     return using((arena) {
       final p = arena<_AsProgress>();
@@ -380,6 +434,41 @@ Future<void> waveletSharpenIsolate({
         gains: gains,
         denoise: denoise,
         outPath: outPath,
+        maxDim: maxDim,
+      ));
+}
+
+/// See [analyzeFramesIsolate] for why this must stay a top-level function.
+Future<void> mineralAdjustIsolate({
+  required String inPath,
+  required String outPath,
+  required double saturation,
+  required double vibrance,
+  required double colorNoise,
+  required double falseColor,
+  double rGain = 1.0,
+  double gGain = 1.0,
+  double bGain = 1.0,
+  double intensity = 1.0,
+  bool fullDisc = false,
+  double warmth = 0.0,
+  bool discMask = true,
+  int maxDim = 0,
+}) {
+  return Isolate.run(() => AstroEngine.instance.mineralAdjust(
+        inPath: inPath,
+        outPath: outPath,
+        saturation: saturation,
+        vibrance: vibrance,
+        colorNoise: colorNoise,
+        falseColor: falseColor,
+        rGain: rGain,
+        gGain: gGain,
+        bGain: bGain,
+        intensity: intensity,
+        fullDisc: fullDisc,
+        warmth: warmth,
+        discMask: discMask,
         maxDim: maxDim,
       ));
 }
