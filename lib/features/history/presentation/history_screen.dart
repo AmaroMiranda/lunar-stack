@@ -24,7 +24,7 @@ class HistoryScreen extends ConsumerWidget {
                 child: Padding(
                   padding: const EdgeInsets.all(24),
                   child: Text(
-                    'Nenhum projeto ainda. Importe um vídeo da Lua para começar seu primeiro processamento.',
+                    'Nenhum projeto ainda. Importe um vídeo ou fotos da Lua para começar seu primeiro processamento.',
                     textAlign: TextAlign.center,
                     style: Theme.of(context).textTheme.bodyMedium,
                   ),
