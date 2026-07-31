@@ -127,9 +127,15 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                 return Column(
                   children: entries
                       .take(3)
-                      .map((e) => Padding(
+                      .map((e) {
+                        final canReopen =
+                            e.status == ProcessingStage.done && e.resultPath != null;
+                        return Padding(
                             padding: const EdgeInsets.only(bottom: 10),
                             child: AstroCard(
+                              onTap: canReopen
+                                  ? () => context.push('/history-view', extra: e)
+                                  : null,
                               child: Row(
                                 children: [
                                   Icon(
@@ -151,10 +157,14 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                                       ],
                                     ),
                                   ),
+                                  if (canReopen)
+                                    Icon(Icons.chevron_right,
+                                        color: Theme.of(context).colorScheme.outline),
                                 ],
                               ),
                             ),
-                          ))
+                          );
+                      })
                       .toList(),
                 );
               },

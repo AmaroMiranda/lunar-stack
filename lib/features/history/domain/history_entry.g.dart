@@ -15,6 +15,10 @@ _$HistoryEntryImpl _$$HistoryEntryImplFromJson(Map<String, dynamic> json) =>
       status: $enumDecode(_$ProcessingStageEnumMap, json['status']),
       summary: json['summary'] as String,
       sourceVideoUri: json['sourceVideoUri'] as String?,
+      resultPath: json['resultPath'] as String?,
+      previewPath: json['previewPath'] as String?,
+      resultWidth: (json['resultWidth'] as num?)?.toInt(),
+      resultHeight: (json['resultHeight'] as num?)?.toInt(),
     );
 
 Map<String, dynamic> _$$HistoryEntryImplToJson(_$HistoryEntryImpl instance) =>
@@ -26,6 +30,10 @@ Map<String, dynamic> _$$HistoryEntryImplToJson(_$HistoryEntryImpl instance) =>
       'status': _$ProcessingStageEnumMap[instance.status]!,
       'summary': instance.summary,
       'sourceVideoUri': instance.sourceVideoUri,
+      'resultPath': instance.resultPath,
+      'previewPath': instance.previewPath,
+      'resultWidth': instance.resultWidth,
+      'resultHeight': instance.resultHeight,
     };
 
 const _$ProjectTypeEnumMap = {

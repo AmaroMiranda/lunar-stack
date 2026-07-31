@@ -68,6 +68,9 @@ class _VideoResultScreenState extends ConsumerState<VideoResultScreen> {
             summary:
                 '${draft.stabilizedFrames} frames · ${draft.stabilizedWidth}x${draft.stabilizedHeight}',
             sourceVideoUri: draft.metadata!.uri,
+            resultPath: draft.stabilizedVideoPath,
+            resultWidth: draft.stabilizedWidth,
+            resultHeight: draft.stabilizedHeight,
           ),
         );
   }

@@ -1,7 +1,9 @@
 import 'package:go_router/go_router.dart';
 
 import '../features/analysis/presentation/analysis_screen.dart';
+import '../features/history/domain/history_entry.dart';
 import '../features/history/presentation/history_screen.dart';
+import '../features/history/presentation/saved_result_screen.dart';
 import '../features/home/presentation/home_screen.dart';
 import '../features/import_images/presentation/image_import_screen.dart';
 import '../features/import_video/presentation/import_screen.dart';
@@ -31,5 +33,9 @@ final appRouter = GoRouter(
     ),
     GoRoute(path: '/result-video', builder: (context, state) => const VideoResultScreen()),
     GoRoute(path: '/history', builder: (context, state) => const HistoryScreen()),
+    GoRoute(
+      path: '/history-view',
+      builder: (context, state) => SavedResultScreen(entry: state.extra as HistoryEntry),
+    ),
   ],
 );

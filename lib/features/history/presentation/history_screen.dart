@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
 
 import '../../../core/domain/processing_stage.dart';
@@ -37,7 +38,13 @@ class HistoryScreen extends ConsumerWidget {
               separatorBuilder: (_, _) => const SizedBox(height: 10),
               itemBuilder: (context, i) {
                 final e = entries[i];
+                // Reabrível só quando concluiu e o arquivo final foi guardado.
+                final canReopen =
+                    e.status == ProcessingStage.done && e.resultPath != null;
                 return AstroCard(
+                  onTap: canReopen
+                      ? () => context.push('/history-view', extra: e)
+                      : null,
                   child: Row(
                     children: [
                       Icon(
@@ -61,6 +68,8 @@ class HistoryScreen extends ConsumerWidget {
                           ],
                         ),
                       ),
+                      if (canReopen)
+                        Icon(Icons.chevron_right, color: Theme.of(context).colorScheme.outline),
                     ],
                   ),
                 );

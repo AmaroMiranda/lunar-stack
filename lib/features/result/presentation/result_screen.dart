@@ -82,6 +82,10 @@ class _ResultScreenState extends ConsumerState<ResultScreen> {
             status: ProcessingStage.done,
             summary: '${draft.stackResult!.framesStacked} frames · ${draft.stackResult!.stackingMethod.label}',
             sourceVideoUri: draft.metadata!.uri,
+            resultPath: draft.stackResult!.outputPath,
+            previewPath: draft.stackResult!.previewPath,
+            resultWidth: draft.stackResult!.width,
+            resultHeight: draft.stackResult!.height,
           ),
         );
   }

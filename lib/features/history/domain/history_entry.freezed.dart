@@ -27,7 +27,13 @@ mixin _$HistoryEntry {
   ProjectType get projectType => throw _privateConstructorUsedError;
   ProcessingStage get status => throw _privateConstructorUsedError;
   String get summary => throw _privateConstructorUsedError;
-  String? get sourceVideoUri => throw _privateConstructorUsedError;
+  String? get sourceVideoUri =>
+      throw _privateConstructorUsedError; // Caminho do resultado final salvo (imagem mestre ou vídeo estabilizado),
+  // para reabrir o projeto e re-exportar. Prévia JPEG quando o mestre é TIFF.
+  String? get resultPath => throw _privateConstructorUsedError;
+  String? get previewPath => throw _privateConstructorUsedError;
+  int? get resultWidth => throw _privateConstructorUsedError;
+  int? get resultHeight => throw _privateConstructorUsedError;
 
   /// Serializes this HistoryEntry to a JSON map.
   Map<String, dynamic> toJson() => throw _privateConstructorUsedError;
@@ -54,6 +60,10 @@ abstract class $HistoryEntryCopyWith<$Res> {
     ProcessingStage status,
     String summary,
     String? sourceVideoUri,
+    String? resultPath,
+    String? previewPath,
+    int? resultWidth,
+    int? resultHeight,
   });
 }
 
@@ -79,6 +89,10 @@ class _$HistoryEntryCopyWithImpl<$Res, $Val extends HistoryEntry>
     Object? status = null,
     Object? summary = null,
     Object? sourceVideoUri = freezed,
+    Object? resultPath = freezed,
+    Object? previewPath = freezed,
+    Object? resultWidth = freezed,
+    Object? resultHeight = freezed,
   }) {
     return _then(
       _value.copyWith(
@@ -110,6 +124,22 @@ class _$HistoryEntryCopyWithImpl<$Res, $Val extends HistoryEntry>
                 ? _value.sourceVideoUri
                 : sourceVideoUri // ignore: cast_nullable_to_non_nullable
                       as String?,
+            resultPath: freezed == resultPath
+                ? _value.resultPath
+                : resultPath // ignore: cast_nullable_to_non_nullable
+                      as String?,
+            previewPath: freezed == previewPath
+                ? _value.previewPath
+                : previewPath // ignore: cast_nullable_to_non_nullable
+                      as String?,
+            resultWidth: freezed == resultWidth
+                ? _value.resultWidth
+                : resultWidth // ignore: cast_nullable_to_non_nullable
+                      as int?,
+            resultHeight: freezed == resultHeight
+                ? _value.resultHeight
+                : resultHeight // ignore: cast_nullable_to_non_nullable
+                      as int?,
           )
           as $Val,
     );
@@ -133,6 +163,10 @@ abstract class _$$HistoryEntryImplCopyWith<$Res>
     ProcessingStage status,
     String summary,
     String? sourceVideoUri,
+    String? resultPath,
+    String? previewPath,
+    int? resultWidth,
+    int? resultHeight,
   });
 }
 
@@ -157,6 +191,10 @@ class __$$HistoryEntryImplCopyWithImpl<$Res>
     Object? status = null,
     Object? summary = null,
     Object? sourceVideoUri = freezed,
+    Object? resultPath = freezed,
+    Object? previewPath = freezed,
+    Object? resultWidth = freezed,
+    Object? resultHeight = freezed,
   }) {
     return _then(
       _$HistoryEntryImpl(
@@ -188,6 +226,22 @@ class __$$HistoryEntryImplCopyWithImpl<$Res>
             ? _value.sourceVideoUri
             : sourceVideoUri // ignore: cast_nullable_to_non_nullable
                   as String?,
+        resultPath: freezed == resultPath
+            ? _value.resultPath
+            : resultPath // ignore: cast_nullable_to_non_nullable
+                  as String?,
+        previewPath: freezed == previewPath
+            ? _value.previewPath
+            : previewPath // ignore: cast_nullable_to_non_nullable
+                  as String?,
+        resultWidth: freezed == resultWidth
+            ? _value.resultWidth
+            : resultWidth // ignore: cast_nullable_to_non_nullable
+                  as int?,
+        resultHeight: freezed == resultHeight
+            ? _value.resultHeight
+            : resultHeight // ignore: cast_nullable_to_non_nullable
+                  as int?,
       ),
     );
   }
@@ -204,6 +258,10 @@ class _$HistoryEntryImpl implements _HistoryEntry {
     required this.status,
     required this.summary,
     this.sourceVideoUri,
+    this.resultPath,
+    this.previewPath,
+    this.resultWidth,
+    this.resultHeight,
   });
 
   factory _$HistoryEntryImpl.fromJson(Map<String, dynamic> json) =>
@@ -223,10 +281,20 @@ class _$HistoryEntryImpl implements _HistoryEntry {
   final String summary;
   @override
   final String? sourceVideoUri;
+  // Caminho do resultado final salvo (imagem mestre ou vídeo estabilizado),
+  // para reabrir o projeto e re-exportar. Prévia JPEG quando o mestre é TIFF.
+  @override
+  final String? resultPath;
+  @override
+  final String? previewPath;
+  @override
+  final int? resultWidth;
+  @override
+  final int? resultHeight;
 
   @override
   String toString() {
-    return 'HistoryEntry(id: $id, name: $name, createdAt: $createdAt, projectType: $projectType, status: $status, summary: $summary, sourceVideoUri: $sourceVideoUri)';
+    return 'HistoryEntry(id: $id, name: $name, createdAt: $createdAt, projectType: $projectType, status: $status, summary: $summary, sourceVideoUri: $sourceVideoUri, resultPath: $resultPath, previewPath: $previewPath, resultWidth: $resultWidth, resultHeight: $resultHeight)';
   }
 
   @override
@@ -243,7 +311,15 @@ class _$HistoryEntryImpl implements _HistoryEntry {
             (identical(other.status, status) || other.status == status) &&
             (identical(other.summary, summary) || other.summary == summary) &&
             (identical(other.sourceVideoUri, sourceVideoUri) ||
-                other.sourceVideoUri == sourceVideoUri));
+                other.sourceVideoUri == sourceVideoUri) &&
+            (identical(other.resultPath, resultPath) ||
+                other.resultPath == resultPath) &&
+            (identical(other.previewPath, previewPath) ||
+                other.previewPath == previewPath) &&
+            (identical(other.resultWidth, resultWidth) ||
+                other.resultWidth == resultWidth) &&
+            (identical(other.resultHeight, resultHeight) ||
+                other.resultHeight == resultHeight));
   }
 
   @JsonKey(includeFromJson: false, includeToJson: false)
@@ -257,6 +333,10 @@ class _$HistoryEntryImpl implements _HistoryEntry {
     status,
     summary,
     sourceVideoUri,
+    resultPath,
+    previewPath,
+    resultWidth,
+    resultHeight,
   );
 
   /// Create a copy of HistoryEntry
@@ -282,6 +362,10 @@ abstract class _HistoryEntry implements HistoryEntry {
     required final ProcessingStage status,
     required final String summary,
     final String? sourceVideoUri,
+    final String? resultPath,
+    final String? previewPath,
+    final int? resultWidth,
+    final int? resultHeight,
   }) = _$HistoryEntryImpl;
 
   factory _HistoryEntry.fromJson(Map<String, dynamic> json) =
@@ -300,7 +384,16 @@ abstract class _HistoryEntry implements HistoryEntry {
   @override
   String get summary;
   @override
-  String? get sourceVideoUri;
+  String? get sourceVideoUri; // Caminho do resultado final salvo (imagem mestre ou vídeo estabilizado),
+  // para reabrir o projeto e re-exportar. Prévia JPEG quando o mestre é TIFF.
+  @override
+  String? get resultPath;
+  @override
+  String? get previewPath;
+  @override
+  int? get resultWidth;
+  @override
+  int? get resultHeight;
 
   /// Create a copy of HistoryEntry
   /// with the given fields replaced by the non-null parameter values.
