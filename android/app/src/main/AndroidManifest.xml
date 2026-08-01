@@ -1,4 +1,12 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- Empilhar em segundo plano: um foreground service mantem o processo vivo
+         quando o app sai de foco e mostra o progresso na barra de notificacoes.
+         mediaProcessing e o tipo semantico correto no Android 14+ (para
+         processamento de midia); WAKE_LOCK mantem a CPU com a tela apagada. -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE"/>
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PROCESSING"/>
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS"/>
+    <uses-permission android:name="android.permission.WAKE_LOCK"/>
     <application
         android:label="LunarStack"
         android:name="${applicationName}"
@@ -25,6 +33,12 @@
                 <category android:name="android.intent.category.LAUNCHER"/>
             </intent-filter>
         </activity>
+        <!-- Foreground service do empilhamento em segundo plano (ver
+             ProcessingService.kt). Nao exportado: so o proprio app o inicia. -->
+        <service
+            android:name=".ProcessingService"
+            android:exported="false"
+            android:foregroundServiceType="mediaProcessing"/>
         <!-- Don't delete the meta-data below.
              This is used by the Flutter tool to generate GeneratedPluginRegistrant.java -->
         <meta-data

@@ -16,11 +16,45 @@ class MainActivity : FlutterActivity() {
     private val methodChannelName = "com.astrostack.lunar_stack/frame_extractor"
     private val progressChannelName = "com.astrostack.lunar_stack/frame_extractor_progress"
     private val mainHandler = Handler(Looper.getMainLooper())
-    private var progressSink: EventChannel.EventSink? = null
 
-    private fun postProgress(phase: String, current: Int, total: Int) {
-        mainHandler.post {
-            progressSink?.success(mapOf("phase" to phase, "current" to current, "total" to total))
+    companion object {
+        @Volatile
+        private var progressSink: EventChannel.EventSink? = null
+        @Volatile
+        private var methodChannel: MethodChannel? = null
+        private val uiHandler = Handler(Looper.getMainLooper())
+
+        fun setProgressSink(sink: EventChannel.EventSink?) {
+            progressSink = sink
+        }
+
+        fun setMethodChannel(channel: MethodChannel?) {
+            methodChannel = channel
+        }
+
+        /** Kotlin -> Dart push on the progress EventChannel (same process). */
+        fun emit(phase: String, current: Int, total: Int) {
+            uiHandler.post {
+                progressSink?.success(mapOf("phase" to phase, "current" to current, "total" to total))
+            }
+        }
+
+        /** The notification's "Cancelar" action reaches here via ProcessingService.
+         *  Only Dart can cancel the FFI stacking, so we call back into Dart on the
+         *  (bidirectional) method channel; Dart runs the real cancel. */
+        fun postCancelRequested() {
+            uiHandler.post { methodChannel?.invokeMethod("onCancelRequested", null) }
+        }
+    }
+
+    private fun postProgress(phase: String, current: Int, total: Int) = emit(phase, current, total)
+
+    private fun ensureNotificationPermission() {
+        if (Build.VERSION.SDK_INT >= 33 &&
+            checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS) !=
+            android.content.pm.PackageManager.PERMISSION_GRANTED
+        ) {
+            requestPermissions(arrayOf(android.Manifest.permission.POST_NOTIFICATIONS), 1001)
         }
     }
 
@@ -30,15 +64,17 @@ class MainActivity : FlutterActivity() {
         EventChannel(flutterEngine.dartExecutor.binaryMessenger, progressChannelName)
             .setStreamHandler(object : EventChannel.StreamHandler {
                 override fun onListen(arguments: Any?, events: EventChannel.EventSink?) {
-                    progressSink = events
+                    setProgressSink(events)
                 }
 
                 override fun onCancel(arguments: Any?) {
-                    progressSink = null
+                    setProgressSink(null)
                 }
             })
 
-        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, methodChannelName)
+        val methodChannel = MethodChannel(flutterEngine.dartExecutor.binaryMessenger, methodChannelName)
+        setMethodChannel(methodChannel)
+        methodChannel
             .setMethodCallHandler { call, result ->
                 when (call.method) {
                     // Pass 1: sequential decode of the whole clip, returning the
@@ -119,6 +155,28 @@ class MainActivity : FlutterActivity() {
                     "cancelExtraction" -> {
                         SequentialFrameExtractor.cancelRequested = true
                         VideoStabilizer.cancelRequested = true
+                        result.success(null)
+                    }
+
+                    // Empilhamento em segundo plano: inicia/atualiza/encerra o
+                    // foreground service que segura o processo e mostra o
+                    // progresso na barra de notificacoes (ver ProcessingService).
+                    "startProcessing" -> {
+                        ensureNotificationPermission()
+                        ProcessingService.start(this, call.argument<String>("title") ?: "LunarStack")
+                        result.success(null)
+                    }
+
+                    "updateProcessing" -> {
+                        ProcessingService.instance?.update(
+                            call.argument<Int>("progress") ?: 0,
+                            call.argument<String>("stage") ?: "",
+                        )
+                        result.success(null)
+                    }
+
+                    "stopProcessing" -> {
+                        ProcessingService.stop(this, call.argument<String>("status") ?: "done")
                         result.success(null)
                     }
 

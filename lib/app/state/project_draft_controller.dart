@@ -21,8 +21,42 @@ final projectDraftProvider = NotifierProvider<ProjectDraftController, ProjectDra
 class ProjectDraftController extends Notifier<ProjectDraft> {
   final _extractor = FrameExtractorChannel();
 
+  // -- Notificação de segundo plano (Android) -------------------------------
+  // Um foreground service (ProcessingService.kt) mantém o processo vivo quando
+  // o app sai de foco e espelha o progresso na barra de notificações. Só no
+  // Android; nas outras plataformas o canal nem existe (por isso os guards).
+  int _lastNotifPct = -1;
+
+  void _notifStart(String title) {
+    if (!Platform.isAndroid) return;
+    _lastNotifPct = -1;
+    _extractor.startProcessingNotification(title: title).catchError((_) {});
+  }
+
+  void _notifTick() {
+    if (!Platform.isAndroid) return;
+    final pct = (state.overallProgress.clamp(0.0, 1.0) * 100).round();
+    if (pct == _lastNotifPct) return; // evita spammar o canal a cada frame
+    _lastNotifPct = pct;
+    _extractor
+        .updateProcessingNotification(progress: pct, stage: state.stage.label)
+        .catchError((_) {});
+  }
+
+  void _notifStop(String status) {
+    if (!Platform.isAndroid) return;
+    _extractor.stopProcessingNotification(status: status).catchError((_) {});
+  }
+
   @override
-  ProjectDraft build() => const ProjectDraft();
+  ProjectDraft build() {
+    // A ação "Cancelar" da notificação chega do Kotlin por aqui — só o Dart
+    // cancela o empilhamento no FFI, então rodamos o cancel real.
+    if (Platform.isAndroid) {
+      _extractor.setCancelHandler(cancelProcessing);
+    }
+    return const ProjectDraft();
+  }
 
   void reset() {
     AstroEngine.instance.cancel();
@@ -108,11 +142,17 @@ class ProjectDraftController extends Notifier<ProjectDraft> {
   /// then align+stack with the native engine. The stabilization flow skips
   /// analysis entirely and re-encodes the clip on the Kotlin side.
   Future<void> runProcessing() async {
+    _notifStart(state.projectType == ProjectType.stabilization
+        ? 'Estabilizando vídeo'
+        : 'Empilhando frames');
     if (state.projectType == ProjectType.stabilization) {
       return _runStabilization();
     }
     final metadata = state.metadata;
-    if (metadata == null || state.frameQualities.isEmpty) return;
+    if (metadata == null || state.frameQualities.isEmpty) {
+      _notifStop('failed');
+      return;
+    }
 
     state = state.copyWith(stage: ProcessingStage.validating, overallProgress: 0.0);
 
@@ -149,6 +189,7 @@ class ProjectDraftController extends Notifier<ProjectDraft> {
             framesTotal: p.total,
             overallProgress: 0.02 + 0.28 * (p.total == 0 ? 0 : p.current / p.total),
           );
+          _notifTick();
         });
         final tempDir = await getTemporaryDirectory();
         final framesDir =
@@ -211,6 +252,7 @@ class ProjectDraftController extends Notifier<ProjectDraft> {
             framesProcessed: progress.current,
             framesTotal: progress.total == 0 ? state.framesTotal : progress.total,
           );
+          _notifTick();
         },
       );
       stopwatch.stop();
@@ -247,6 +289,11 @@ class ProjectDraftController extends Notifier<ProjectDraft> {
       );
     } finally {
       await extractSub?.cancel();
+      _notifStop(switch (state.stage) {
+        ProcessingStage.done => 'done',
+        ProcessingStage.cancelled => 'cancelled',
+        _ => 'failed',
+      });
     }
   }
 
@@ -254,7 +301,10 @@ class ProjectDraftController extends Notifier<ProjectDraft> {
   /// re-encodes to MP4 — the whole pipeline runs device-side in one pass.
   Future<void> _runStabilization() async {
     final metadata = state.metadata;
-    if (metadata == null) return;
+    if (metadata == null) {
+      _notifStop('failed');
+      return;
+    }
 
     state = state.copyWith(
       stage: ProcessingStage.detectingObject,
@@ -273,6 +323,7 @@ class ProjectDraftController extends Notifier<ProjectDraft> {
           framesTotal: p.total,
           overallProgress: 0.02 + 0.96 * (p.total == 0 ? 0 : p.current / p.total),
         );
+        _notifTick();
       });
 
       final docsDir = await getApplicationDocumentsDirectory();
@@ -304,6 +355,11 @@ class ProjectDraftController extends Notifier<ProjectDraft> {
       );
     } finally {
       await sub?.cancel();
+      _notifStop(switch (state.stage) {
+        ProcessingStage.done => 'done',
+        ProcessingStage.cancelled => 'cancelled',
+        _ => 'failed',
+      });
     }
   }
 }

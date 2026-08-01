@@ -135,6 +135,37 @@ class FrameExtractorChannel {
 
   Future<void> cancelExtraction() => _methodChannel.invokeMethod('cancelExtraction');
 
+  // -- Notificação de processamento em segundo plano (Android) --------------
+  // Um foreground service mantém o processo vivo quando o app sai de foco e
+  // espelha o progresso na barra de notificações. Chamados só no Android
+  // (guardado no controller); em outras plataformas o canal nem existe.
+
+  /// Inicia o service + notificação de progresso.
+  Future<void> startProcessingNotification({required String title}) =>
+      _methodChannel.invokeMethod('startProcessing', {'title': title});
+
+  /// Atualiza a barra de progresso (0..100) e o rótulo do estágio.
+  Future<void> updateProcessingNotification({
+    required int progress,
+    required String stage,
+  }) =>
+      _methodChannel.invokeMethod('updateProcessing', {'progress': progress, 'stage': stage});
+
+  /// Encerra o service. [status] = 'done' mostra a notificação "Concluído ·
+  /// toque para ver"; qualquer outro valor só limpa a notificação em andamento.
+  Future<void> stopProcessingNotification({required String status}) =>
+      _methodChannel.invokeMethod('stopProcessing', {'status': status});
+
+  /// Registra o callback chamado quando o usuário toca em "Cancelar" na
+  /// notificação. O Kotlin invoca `onCancelRequested` neste mesmo MethodChannel
+  /// (bidirecional); aqui repassamos pro cancel real (engine FFI + extrator).
+  void setCancelHandler(void Function() onCancel) {
+    _methodChannel.setMethodCallHandler((call) async {
+      if (call.method == 'onCancelRequested') onCancel();
+      return null;
+    });
+  }
+
   /// "Apenas estabilizar": re-encodes the clip with the Moon center-locked.
   /// Progress arrives on [progressStream] with phase 'stabilize'.
   Future<StabilizationResult> stabilizeVideo({
