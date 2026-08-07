@@ -19,7 +19,7 @@ class AstroWarningBox extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final isWarning = severity == AstroWarningSeverity.warning;
-    final color = isWarning ? LunarColors.warningOrange : Theme.of(context).colorScheme.secondary;
+    final color = isWarning ? LunarColors.warning : LunarColors.orbitBlue;
     return Container(
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(

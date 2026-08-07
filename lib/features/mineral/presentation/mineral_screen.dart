@@ -8,7 +8,9 @@ import 'package:go_router/go_router.dart';
 import 'package:path_provider/path_provider.dart';
 
 import '../../../app/state/project_draft_controller.dart';
+import '../../../app/theme.dart';
 import '../../../core/native/astro_engine_bindings.dart';
+import '../../../core/widgets/rendering_badge.dart';
 
 /// Parâmetros da "Lua Mineral" (realce da cor mineral real da Lua). Os valores
 /// padrão já produzem um resultado colorido de cara — o usuário refina.
@@ -284,32 +286,26 @@ class _MineralScreenState extends ConsumerState<MineralScreen> {
         child: Column(
           children: [
             Expanded(
-              child: Stack(
-                fit: StackFit.expand,
-                children: [
-                  InteractiveViewer(
-                    minScale: 1.0,
-                    maxScale: 6.0,
-                    clipBehavior: Clip.hardEdge,
-                    child: Image.file(
-                      File(showPath),
-                      key: ValueKey(showPath),
-                      fit: BoxFit.contain,
-                      gaplessPlayback: true,
-                      cacheWidth: 1600,
-                    ),
-                  ),
-                  if (_rendering)
-                    const Positioned(
-                      top: 12,
-                      right: 12,
-                      child: SizedBox(
-                        width: 20,
-                        height: 20,
-                        child: CircularProgressIndicator(strokeWidth: 2),
+              child: ColoredBox(
+                color: Colors.black,
+                child: Stack(
+                  fit: StackFit.expand,
+                  children: [
+                    InteractiveViewer(
+                      minScale: 1.0,
+                      maxScale: 6.0,
+                      clipBehavior: Clip.hardEdge,
+                      child: Image.file(
+                        File(showPath),
+                        key: ValueKey(showPath),
+                        fit: BoxFit.contain,
+                        gaplessPlayback: true,
+                        cacheWidth: 1600,
                       ),
                     ),
-                ],
+                    if (_rendering) const RenderingBadge(),
+                  ],
+                ),
               ),
             ),
             Container(
@@ -463,9 +459,7 @@ class _MineralSlider extends StatelessWidget {
         Row(
           children: [
             Expanded(child: Text(label)),
-            Text('$pct%',
-                style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                    color: Theme.of(context).colorScheme.onSurfaceVariant)),
+            Text('$pct%', style: monoStyle(size: 13, color: LunarColors.mist500)),
           ],
         ),
         SliderTheme(

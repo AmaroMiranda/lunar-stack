@@ -8,9 +8,11 @@ import '../../../app/state/project_draft_controller.dart';
 import '../../../core/domain/frame_quality.dart';
 import '../../../core/native/astro_engine_bindings.dart';
 import '../../../core/native/frame_extractor_channel.dart';
+import '../../../app/theme.dart';
 import '../../../core/widgets/astro_card.dart';
 import '../../../core/widgets/astro_metric_chip.dart';
 import '../../../core/widgets/astro_quality_graph.dart';
+import '../../../core/widgets/moon_progress_indicator.dart';
 import '../domain/frame_selection_suggestion.dart';
 
 class AnalysisScreen extends ConsumerStatefulWidget {
@@ -285,16 +287,28 @@ class _LoadingBody extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final hasProgress = total > 0;
     return Center(
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          const CircularProgressIndicator(),
-          const SizedBox(height: 16),
-          Text(message, style: Theme.of(context).textTheme.bodyMedium),
-          if (total > 0) ...[
-            const SizedBox(height: 4),
-            Text('$current/$total', style: Theme.of(context).textTheme.bodySmall),
+          if (hasProgress)
+            MoonProgressIndicator(progress: current / total, size: 150)
+          else
+            const SizedBox(
+              width: 150,
+              height: 150,
+              child: Center(child: CircularProgressIndicator()),
+            ),
+          const SizedBox(height: 28),
+          Text(
+            message,
+            style: Theme.of(context).textTheme.titleMedium,
+            textAlign: TextAlign.center,
+          ),
+          if (hasProgress) ...[
+            const SizedBox(height: 10),
+            Text('$current/$total', style: monoStyle(size: 13, color: LunarColors.mist500)),
           ],
         ],
       ),

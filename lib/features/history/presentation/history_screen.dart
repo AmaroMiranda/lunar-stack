@@ -1,11 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:go_router/go_router.dart';
-import 'package:intl/intl.dart';
 
-import '../../../core/domain/processing_stage.dart';
-import '../../../core/domain/project_type.dart';
-import '../../../core/widgets/astro_card.dart';
+import '../../../core/widgets/project_tile.dart';
+import '../../../core/widgets/section_label.dart';
 import '../application/history_controller.dart';
 
 class HistoryScreen extends ConsumerWidget {
@@ -33,46 +30,17 @@ class HistoryScreen extends ConsumerWidget {
               );
             }
             return ListView.separated(
-              padding: const EdgeInsets.all(20),
-              itemCount: entries.length,
+              padding: const EdgeInsets.fromLTRB(20, 12, 20, 20),
+              itemCount: entries.length + 1,
               separatorBuilder: (_, _) => const SizedBox(height: 10),
               itemBuilder: (context, i) {
-                final e = entries[i];
-                // Reabrível só quando concluiu e o arquivo final foi guardado.
-                final canReopen =
-                    e.status == ProcessingStage.done && e.resultPath != null;
-                return AstroCard(
-                  onTap: canReopen
-                      ? () => context.push('/history-view', extra: e)
-                      : null,
-                  child: Row(
-                    children: [
-                      Icon(
-                        e.status == ProcessingStage.done ? Icons.check_circle : Icons.error_outline,
-                        color: Theme.of(context).colorScheme.secondary,
-                      ),
-                      const SizedBox(width: 12),
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(e.name, style: Theme.of(context).textTheme.titleMedium),
-                            Text(
-                              '${e.projectType.title} · ${e.summary}',
-                              style: Theme.of(context).textTheme.bodySmall,
-                            ),
-                            Text(
-                              DateFormat('dd/MM/yyyy HH:mm').format(e.createdAt),
-                              style: Theme.of(context).textTheme.bodySmall,
-                            ),
-                          ],
-                        ),
-                      ),
-                      if (canReopen)
-                        Icon(Icons.chevron_right, color: Theme.of(context).colorScheme.outline),
-                    ],
-                  ),
-                );
+                if (i == 0) {
+                  return const Padding(
+                    padding: EdgeInsets.only(bottom: 4),
+                    child: SectionLabel('Todos os projetos'),
+                  );
+                }
+                return ProjectTile(entry: entries[i - 1], showSummary: true);
               },
             );
           },

@@ -8,6 +8,7 @@ import 'package:path_provider/path_provider.dart';
 
 import '../../../app/state/project_draft_controller.dart';
 import '../../../core/native/astro_engine_bindings.dart';
+import '../../../core/widgets/rendering_badge.dart';
 
 /// Rótulos das 5 escalas do wavelet, do detalhe mais fino ao mais grosso.
 const _kScaleLabels = [
@@ -239,7 +240,9 @@ class _WaveletScreenState extends ConsumerState<WaveletScreen> {
         child: Column(
           children: [
             Expanded(
-              child: Stack(
+              child: ColoredBox(
+                color: Colors.black,
+                child: Stack(
                 fit: StackFit.expand,
                 children: [
                   InteractiveViewer(
@@ -254,16 +257,7 @@ class _WaveletScreenState extends ConsumerState<WaveletScreen> {
                       cacheWidth: 1600,
                     ),
                   ),
-                  if (_rendering)
-                    const Positioned(
-                      top: 12,
-                      right: 12,
-                      child: SizedBox(
-                        width: 20,
-                        height: 20,
-                        child: CircularProgressIndicator(strokeWidth: 2),
-                      ),
-                    ),
+                  if (_rendering) const RenderingBadge(),
                   Positioned(
                     left: 12,
                     bottom: 12,
@@ -291,6 +285,7 @@ class _WaveletScreenState extends ConsumerState<WaveletScreen> {
                     ),
                   ),
                 ],
+                ),
               ),
             ),
             Container(

@@ -20,7 +20,7 @@ class AstroCard extends StatelessWidget {
     if (onTap == null) return card;
     return InkWell(
       onTap: onTap,
-      borderRadius: BorderRadius.circular(16),
+      borderRadius: BorderRadius.circular(18),
       child: card,
     );
   }

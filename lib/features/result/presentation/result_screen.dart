@@ -15,6 +15,7 @@ import '../../../core/native/frame_extractor_channel.dart';
 import '../../../core/widgets/astro_before_after_viewer.dart';
 import '../../../core/widgets/astro_card.dart';
 import '../../../core/widgets/astro_metric_chip.dart';
+import '../../../core/widgets/fullscreen_image_viewer.dart';
 import '../../history/application/history_controller.dart';
 import '../../history/domain/history_entry.dart';
 
@@ -248,7 +249,21 @@ class _ResultScreenState extends ConsumerState<ResultScreen> {
                 cacheWidth: 1440,
               ),
             ),
-            const SizedBox(height: 16),
+            const SizedBox(height: 8),
+            Align(
+              alignment: Alignment.centerRight,
+              child: TextButton.icon(
+                onPressed: () => FullscreenImageViewer.open(
+                  context,
+                  file: File(displayPath),
+                  caption: '${result.width}×${result.height} · '
+                      '${result.framesStacked} frames',
+                ),
+                icon: const Icon(Icons.zoom_in_rounded, size: 20),
+                label: const Text('Ver em tela cheia'),
+              ),
+            ),
+            const SizedBox(height: 8),
             AstroCard(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,

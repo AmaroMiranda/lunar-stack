@@ -6,10 +6,12 @@ import 'package:video_player/video_player.dart';
 import '../../../app/state/project_draft_controller.dart';
 import '../../../core/domain/project_type.dart';
 import '../../../core/domain/video_metadata.dart';
+import '../../../app/theme.dart';
 import '../../../core/widgets/astro_button.dart';
 import '../../../core/widgets/astro_card.dart';
 import '../../../core/widgets/astro_metric_chip.dart';
 import '../../../core/widgets/astro_warning_box.dart';
+import '../../../core/widgets/dotted_panel.dart';
 import '../application/import_controller.dart';
 
 class ImportScreen extends ConsumerWidget {
@@ -62,19 +64,38 @@ class _EmptyImport extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Center(
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          Icon(Icons.video_library_outlined, size: 64, color: Theme.of(context).colorScheme.outline),
-          const SizedBox(height: 16),
-          Text(
-            'Selecione um vídeo da Lua na sua galeria para começar.',
-            textAlign: TextAlign.center,
-            style: Theme.of(context).textTheme.bodyMedium,
-          ),
-          const SizedBox(height: 24),
-          AstroButton(label: 'Selecionar vídeo', icon: Icons.add, onPressed: onPick),
-        ],
+      child: DottedPanel(
+        padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 40),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Container(
+              width: 68,
+              height: 68,
+              decoration: BoxDecoration(
+                color: LunarColors.orbitBlue.withValues(alpha: 0.12),
+                borderRadius: BorderRadius.circular(20),
+              ),
+              child: const Icon(Icons.movie_creation_outlined,
+                  size: 34, color: LunarColors.orbitBlue),
+            ),
+            const SizedBox(height: 18),
+            Text(
+              'Escolha um vídeo da Lua',
+              style: Theme.of(context).textTheme.titleMedium,
+              textAlign: TextAlign.center,
+            ),
+            const SizedBox(height: 8),
+            Text(
+              'O app extrai os frames, mede a nitidez de cada um e empilha os '
+              'melhores em uma foto limpa.',
+              textAlign: TextAlign.center,
+              style: Theme.of(context).textTheme.bodyMedium,
+            ),
+            const SizedBox(height: 24),
+            AstroButton(label: 'Selecionar vídeo', icon: Icons.add, onPressed: onPick),
+          ],
+        ),
       ),
     );
   }

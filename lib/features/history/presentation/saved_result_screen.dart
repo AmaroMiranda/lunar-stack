@@ -12,6 +12,7 @@ import '../../../core/native/astro_engine_bindings.dart';
 import '../../../core/native/frame_extractor_channel.dart';
 import '../../../core/widgets/astro_card.dart';
 import '../../../core/widgets/astro_metric_chip.dart';
+import '../../../core/widgets/fullscreen_image_viewer.dart';
 import '../domain/history_entry.dart';
 
 /// Reabre um projeto salvo no histórico só para VER e RE-EXPORTAR o resultado.
@@ -222,15 +223,41 @@ class _SavedResultScreenState extends ConsumerState<SavedResultScreen> {
     final master = e.resultPath!;
     final isTiff = master.endsWith('.tif') || master.endsWith('.tiff');
     final show = isTiff ? (e.previewPath ?? master) : master;
-    return Image.file(
-      File(show),
-      fit: BoxFit.cover,
-      cacheWidth: 1440,
-      errorBuilder: (context, error, stack) => Container(
-        color: Colors.black,
-        height: 220,
-        alignment: Alignment.center,
-        child: const Icon(Icons.broken_image_outlined, color: Colors.white54),
+    final dims = (e.resultWidth != null && e.resultHeight != null)
+        ? '${e.resultWidth}×${e.resultHeight}'
+        : null;
+    return GestureDetector(
+      onTap: () => FullscreenImageViewer.open(
+        context,
+        file: File(show),
+        caption: dims,
+      ),
+      child: Stack(
+        children: [
+          Image.file(
+            File(show),
+            fit: BoxFit.cover,
+            cacheWidth: 1440,
+            errorBuilder: (context, error, stack) => Container(
+              color: Colors.black,
+              height: 220,
+              alignment: Alignment.center,
+              child: const Icon(Icons.broken_image_outlined, color: Colors.white54),
+            ),
+          ),
+          Positioned(
+            right: 10,
+            bottom: 10,
+            child: Container(
+              padding: const EdgeInsets.all(7),
+              decoration: BoxDecoration(
+                color: Colors.black.withValues(alpha: 0.45),
+                borderRadius: BorderRadius.circular(9),
+              ),
+              child: const Icon(Icons.zoom_in_rounded, size: 20, color: Colors.white),
+            ),
+          ),
+        ],
       ),
     );
   }

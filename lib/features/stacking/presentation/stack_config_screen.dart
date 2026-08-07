@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../../app/state/project_draft_controller.dart';
+import '../../../core/domain/project_type.dart';
 import '../../../core/domain/stack_config.dart';
 import '../../../core/widgets/astro_card.dart';
 
@@ -77,6 +78,18 @@ class StackConfigScreen extends ConsumerWidget {
               onSelectionChanged: (s) => notifier.updateStackConfig((c) => c.copyWith(stackingMethod: s.first)),
             ),
             const SizedBox(height: 12),
+            if (!draft.imageMode)
+              SwitchListTile(
+                contentPadding: EdgeInsets.zero,
+                title: const Text('Centralizar a Lua'),
+                subtitle: const Text(
+                  'Alinha a Lua no centro antes de empilhar — recomendado para vídeo tremido.',
+                ),
+                value: draft.projectType == ProjectType.stabilizationPlusStacking,
+                onChanged: (v) => notifier.setProjectType(
+                  v ? ProjectType.stabilizationPlusStacking : ProjectType.stacking,
+                ),
+              ),
             SwitchListTile(
               contentPadding: EdgeInsets.zero,
               title: const Text('Crop automático'),
